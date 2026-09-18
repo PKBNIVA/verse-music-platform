@@ -5,9 +5,11 @@ class ConversationsController < ApplicationController
     render json: { conversations: rows.map { |c| { id: c.id, candidateName: c.candidate.name, employerName: c.employer.name, jobTitle: c.job&.title, lastMessage: c.messages.max_by(&:created_at)&.body } } }
   end
   def create
-    candidate = User.jobseeker.find(params[:candidateId]); employer = User.find(params[:employerId] || current_user.id)
+    job = Job.find_by(id: params[:jobId])
+    candidate = params[:candidateId].present? ? User.jobseeker.find(params[:candidateId]) : current_user
+    employer = params[:employerId].present? ? User.find(params[:employerId]) : (job&.employer || current_user)
     return render_error("You cannot create this conversation.", :forbidden) unless [candidate.id, employer.id].include?(current_user.id)
-    conversation = Conversation.find_or_create_by!(candidate:, employer:, job_id: params[:jobId])
-    render json: { id: conversation.id }, status: :created
+    conversation = Conversation.find_or_create_by!(candidate:, employer:, job:)
+    render json: { id: conversation.id, conversation: { id: conversation.id } }, status: :created
   end
 end

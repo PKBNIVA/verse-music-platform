@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /employer
+Disallow: /jobseeker
+
+Sitemap: https://verse-music-platform.vercel.app/sitemap.xml

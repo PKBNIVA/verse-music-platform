@@ -9,6 +9,11 @@ class User < ApplicationRecord
   has_many :portfolio_items, dependent: :destroy
   has_many :notifications, dependent: :destroy
   has_many :email_tokens, dependent: :destroy
+  has_many :owned_acts, class_name: "Act", foreign_key: :owner_id, dependent: :destroy
+  has_many :booking_requests, foreign_key: :requester_id, dependent: :destroy
+  has_many :organizations, foreign_key: :owner_id, dependent: :destroy
+  has_many :band_projects, foreign_key: :owner_id, dependent: :destroy
+  has_many :crew_plans, foreign_key: :owner_id, dependent: :destroy
 
   enum :role, { jobseeker: "jobseeker", employer: "employer", admin: "admin" }, validate: true
   enum :status, { active: "active", suspended: "suspended", pending: "pending" }, validate: true

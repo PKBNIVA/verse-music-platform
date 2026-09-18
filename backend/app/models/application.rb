@@ -3,6 +3,7 @@ class Application < ApplicationRecord
   belongs_to :candidate, class_name: "User"
   attribute :screening_answers, :json, default: -> { [] }
   validates :candidate_id, uniqueness: { scope: :job_id }
+  has_many :application_events, dependent: :destroy
 
   def api_json
     attributes.merge(jobId: job_id, coverLetter: cover_letter, interviewDate: interview_date,

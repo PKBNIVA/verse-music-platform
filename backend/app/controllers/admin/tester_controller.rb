@@ -4,7 +4,7 @@ module Admin
       checks = []
       check = ->(name, pass, detail, severity = "critical") { checks << { name:, pass: !!pass, detail:, severity: } }
       check.call("PostgreSQL connection", ActiveRecord::Base.connection.active?, ActiveRecord::Base.connection_db_config.adapter)
-      %w[users profiles jobs applications portfolio_items subscriptions audit_logs].each do |table|
+      %w[users profiles jobs applications portfolio_items acts booking_requests subscriptions recent_activities crew_plans audit_logs].each do |table|
         check.call("Table: #{table}", ActiveRecord::Base.connection.data_source_exists?(table), "Available", "high")
       end
       check.call("Production frontend URL", !Rails.env.production? || ENV["FRONTEND_URL"].to_s.start_with?("https://"), ENV["FRONTEND_URL"].presence || "Not configured", "high")

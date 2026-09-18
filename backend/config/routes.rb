@@ -67,5 +67,52 @@ Rails.application.routes.draw do
     resources :conversations, only: %i[index create] do
       resources :messages, only: %i[index create], controller: "messages"
     end
+    get "public/acts", to: "acts#public_index"
+    get "public/acts/:id", to: "acts#public_show"
+    get "acts/me", to: "acts#mine"
+    resources :acts, only: %i[index show create] do
+      member { post :members, to: "acts#add_member" }
+    end
+    resources :bookings, only: %i[index create] do
+      member do
+        post :quote
+        post :status, to: "bookings#change_status"
+        post "payment-order", action: :payment_order
+        get :payments
+      end
+    end
+    post "booking-payments/:id/confirm", to: "bookings#confirm_payment"
+    resources :organizations, only: %i[index create] do
+      member do
+        get :members, to: "organizations#members"
+        post :members, to: "organizations#add_member"
+        delete "members/:userId", to: "organizations#remove_member"
+      end
+    end
+    resources :urgent_requests, path: "urgent-requests", only: %i[index create update] do
+      member do
+        post :respond
+        get :responses
+      end
+    end
+    resources :talent_folders, path: "talent-folders", only: %i[index show create destroy] do
+      member { post "candidates/:candidateId", to: "talent_folders#add_candidate" }
+    end
+    resources :band_projects, path: "band-projects", only: %i[index create] do
+      member do
+        post :roles, to: "band_projects#add_role"
+        post "roles/:roleId/publish", to: "band_projects#publish_role"
+      end
+    end
+    resources :crew_plans, path: "crew-plans", only: %i[index create] do
+      member { post :convert }
+    end
+    namespace :billing do
+      get :plans, to: "billing#plans"
+      get :subscription, to: "billing#subscription"
+      post :checkout, to: "billing#checkout"
+      post :cancel, to: "billing#cancel"
+      post "webhook/razorpay", to: "billing#razorpay_webhook"
+    end
   end
 end

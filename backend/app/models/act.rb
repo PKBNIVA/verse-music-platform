@@ -1,0 +1,9 @@
+class Act < ApplicationRecord
+  belongs_to :owner, class_name: "User"
+  has_many :act_members, dependent: :destroy
+  has_many :booking_requests, dependent: :destroy
+  attribute :genres, :json, default: -> { [] }
+  attribute :languages, :json, default: -> { [] }
+  attribute :event_types, :json, default: -> { [] }
+  def api_json = attributes.merge(members: act_members.map(&:api_json), ownerName: owner.name, ownerVerified: owner.profile&.verified || false)
+end

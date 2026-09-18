@@ -21,6 +21,7 @@ module Employer
       return render_error("Invalid application status.", :bad_request) unless allowed.include?(params[:status])
       from = application.status
       application.update!(status: params[:status], interview_date: params[:interviewDate], recruiter_rating: params[:recruiterRating] || application.recruiter_rating, recruiter_note: params[:recruiterNote] || application.recruiter_note)
+      application.application_events.create!(actor: current_user, event_type: "status_changed", from_status: from, to_status: application.status, note: params[:note])
       Notification.create!(user: application.candidate, kind: "application_status", title: "Application update", body: "#{application.job.title}: #{application.status}", link: "/jobseeker/applications")
       audit!("application.status", application, from:, to: application.status)
       render json: { ok: true }

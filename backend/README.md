@@ -14,6 +14,6 @@ Run the Vite frontend with `VITE_API_URL=http://localhost:3000/api`.
 
 ## Production
 
-The repository root contains `heroku.yml`; create a Heroku app using the container stack, attach Heroku Postgres, configure the variables in `.env.example`, and deploy the repository. The release phase runs migrations before the web process is replaced.
+For the initial deployment, Railway reads `railway.toml`, builds `backend/Dockerfile`, and supplies PostgreSQL through `DATABASE_URL`. The repository also contains `heroku.yml` for a later move to Heroku without changing the application image or schema.
 
 Production requires external S3-compatible storage. Local disk storage is intentionally rejected by the readiness check because Heroku's filesystem is ephemeral.

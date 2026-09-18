@@ -12,6 +12,8 @@ class HealthController < ApplicationController
       frontendUrl: { ok: ENV["FRONTEND_URL"].present? },
       allowedOrigins: { ok: ENV["ALLOWED_ORIGINS"].present? },
       storage: { ok: !Rails.env.production? || ENV["AWS_BUCKET"].present?, provider: ENV["AWS_BUCKET"].present? ? "s3" : "local" },
+      payments: { ok: !Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled" },
+      emailDelivery: { ok: !Rails.env.production? || ENV["EMAIL_DELIVERY_WEBHOOK"].present? },
       adminPassword: { ok: !Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14 },
       demoData: { ok: !Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true" }
     }

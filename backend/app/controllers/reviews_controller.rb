@@ -1,6 +1,8 @@
 class ReviewsController < ApplicationController
   def index
-    render json: { reviews: Review.where(employer_id: params[:employerId], status: "published").order(created_at: :desc) }
+    scope = Review.includes(:author, :employer).where(status: "published")
+    scope = scope.where(employer_id: params[:employerId]) if params[:employerId].present?
+    render json: { reviews: scope.order(created_at: :desc).map { _1.attributes.merge(authorName: _1.author.name, employerName: _1.employer.profile&.company_name || _1.employer.name) } }
   end
 
   def create

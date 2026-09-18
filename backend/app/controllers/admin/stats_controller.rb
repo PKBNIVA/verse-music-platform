@@ -8,6 +8,9 @@ module Admin
         hires: Application.where(status: "Hired").count, pendingReviews: Review.where(status: "pending").count,
         verificationQueue: VerificationRequest.where(status: "pending").count,
         openReports: Report.where(status: "open").count,
+        messages: Message.count, acts: Act.where(status: "active").count, bookings: BookingRequest.count,
+        acceptedBookings: BookingRequest.where(status: "accepted").count,
+        paidDeposits: BookingPayment.where(status: "paid", kind: "deposit").count,
         activeSubscriptions: Subscription.where(status: %w[active trialing]).where.not(plan_code: "free").count,
         trialingSubscriptions: Subscription.where(status: "trialing").count
       } }

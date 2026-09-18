@@ -2,9 +2,11 @@ export const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 export class ApiError extends Error { status:number; code?:string; constructor(message:string,status:number,code?:string){super(message);this.status=status;this.code=code;} }
 export async function api<T=any>(path:string,options:RequestInit={}):Promise<T>{
   const headers=new Headers(options.headers||{}); if(options.body!==undefined)headers.set('Content-Type','application/json');
+  const token=sessionStorage.getItem('verse_access_token');if(token)headers.set('Authorization',`Bearer ${token}`);
   const res=await fetch(`${API_BASE}${path}`,{...options,headers,credentials:'include'}); const data=await res.json().catch(()=>({}));
   if(!res.ok)throw new ApiError(data.error||`Request failed (${res.status})`,res.status,data.code); return data;
 }
+export function setAccessToken(token?:string|null){if(token)sessionStorage.setItem('verse_access_token',token);else sessionStorage.removeItem('verse_access_token')}
 export const apiGet=<T=any>(p:string)=>api<T>(p);
 export const apiPost=<T=any>(p:string,b?:unknown)=>api<T>(p,{method:'POST',body:JSON.stringify(b??{})});
 export const apiPut=<T=any>(p:string,b?:unknown)=>api<T>(p,{method:'PUT',body:JSON.stringify(b??{})});
