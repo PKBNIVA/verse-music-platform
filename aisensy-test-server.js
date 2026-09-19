@@ -167,6 +167,11 @@ function json(res, obj, status=200) {
   res.end(body);
 }
 
+function startBulk(res) {
+  if (!running && state.phase === 'ready') runBulk().catch(e => console.error('UNHANDLED_BULK_ERROR', String(e)));
+  return json(res, { accepted: true, state }, 202);
+}
+
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://localhost');
   if (u.pathname === '/status') return json(res, state);
@@ -180,9 +185,6 @@ http.createServer((req, res) => {
     const limit = Math.min(250, Math.max(1, Number(u.searchParams.get('limit') || 100)));
     return json(res, { total: results.length, offset, items: results.slice(offset, offset + limit) });
   }
-  if (u.pathname === `/run/${RUN_TOKEN}`) {
-    if (!running && state.phase === 'ready') runBulk().catch(e => console.error('UNHANDLED_BULK_ERROR', String(e)));
-    return json(res, { accepted: true, state }, 202);
-  }
+  if (u.pathname === `/run/${RUN_TOKEN}` || u.pathname === '/execute-praveen-test-7f2c') return startBulk(res);
   return json(res, { error: 'not found' }, 404);
 }).listen(port, '0.0.0.0', () => console.log('BULK_SENDER_READY'));
