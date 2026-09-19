@@ -14,12 +14,123 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_not User.exists?(email: "unexpected-admin@example.com")
   end
 
-  test "candidate registration creates a secure session" do
+  test "candidate registration creates a bearer-only session" do
     post "/api/auth/register", params: { name: "QA Candidate", email: "qa@example.com", password: "StrongPass123!", role: "jobseeker" }, as: :json
     assert_response :created
     assert_equal "qa@example.com", response.parsed_body.dig("user", "email")
+    token = response.parsed_body.fetch("accessToken")
+
     get "/api/me"
+    assert_response :unauthorized
+    get "/api/me", headers: auth(token)
     assert_response :success
+  end
+
+  test "forgot password response does not reveal whether an account exists" do
+    User.create!(name: "Known User", email: "known@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+
+    post "/api/auth/forgot-password", params: { email: "known@example.com" }, as: :json
+    known_response = response.parsed_body
+    assert_response :success
+
+    post "/api/auth/forgot-password", params: { email: "missing@example.com" }, as: :json
+    assert_response :success
+    assert_equal known_response, response.parsed_body
+  end
+
+  test "taxonomy contains the music data required by creator workflows" do
+    get "/api/taxonomy"
+
+    assert_response :success
+    assert_includes response.parsed_body.fetch("actTypes"), "band"
+    assert_includes response.parsed_body.dig("roleCategories", "live"), "Show Runner"
+    assert_includes response.parsed_body.dig("roleCategories", "writing"), "Composer"
+  end
+
+  test "global search returns normalized jobs talent acts and samples" do
+    owner = User.create!(name: "Jazz Studio", email: "jazz-studio@example.com", password: "StrongPass123!", role: "employer", status: "active", profile_complete: true)
+    owner.create_profile!(company_name: "Jazz Studio")
+    artist = User.create!(name: "Jazz Artist", email: "jazz-artist@example.com", password: "StrongPass123!", role: "jobseeker", status: "active", profile_complete: true)
+    artist.create_profile!(headline: "Jazz Vocalist", bio: "Jazz performer", skills: ["Jazz"])
+    Job.create!(employer: owner, title: "Jazz Singer", company: "Jazz Studio", location: "Mumbai", kind: "Contract", genre: "Jazz", description: "A professional jazz performance opportunity with rehearsals, written terms and an experienced live production team.", status: "published")
+    Act.create!(owner: artist, name: "Jazz Collective", act_type: "band", currency: "INR", fee_basis: "event", status: "active", tagline: "Modern jazz ensemble")
+    PortfolioItem.create!(user: artist, kind: "audio", title: "Jazz Demo", url: "https://example.com/jazz", description: "Live jazz performance", visibility: "public")
+
+    get "/api/search", params: { q: "jazz" }
+
+    assert_response :success
+    assert_equal "postgresql", response.parsed_body.fetch("provider")
+    results = response.parsed_body.fetch("results")
+    assert_equal %w[acts jobs samples talent], results.pluck("type").uniq.sort
+    results.each do |result|
+      assert result["url"].start_with?("/")
+      assert result["title"].present?
+      assert_kind_of Array, result["tags"]
+    end
+  end
+
+  test "notifications include an unread count" do
+    token = register("Notification User", "notifications@example.com", "jobseeker")
+    user = User.find_by!(email: "notifications@example.com")
+    user.notifications.create!(kind: "test", title: "Unread")
+    user.notifications.create!(kind: "test", title: "Read", read_at: Time.current)
+
+    get "/api/notifications", headers: auth(token)
+
+    assert_response :success
+    assert_equal 1, response.parsed_body.fetch("unread")
+    assert_equal 2, response.parsed_body.fetch("notifications").length
+  end
+
+  test "urgent request filters apply to city and role" do
+    token = register("Urgent Buyer", "urgent-buyer@example.com", "employer")
+    requester = User.find_by!(email: "urgent-buyer@example.com")
+    UrgentRequest.create!(requester:, title: "Jazz drummer needed", role_name: "Drummer", city: "Mumbai", currency: "INR", status: "open", start_at: 2.days.from_now)
+    UrgentRequest.create!(requester:, title: "FOH needed", role_name: "FOH Engineer", city: "Delhi", currency: "INR", status: "open", start_at: 2.days.from_now)
+
+    get "/api/urgent-requests", params: { city: "Mumbai", role: "drum" }, headers: auth(token)
+
+    assert_response :success
+    assert_equal ["Jazz drummer needed"], response.parsed_body.fetch("requests").pluck("title")
+  end
+
+  test "employer directory never exposes contact details" do
+    token = register("Directory Viewer", "viewer@example.com", "jobseeker")
+    employer = User.create!(name: "Private Employer", email: "private-employer@example.com", password: "StrongPass123!", role: "employer", status: "active", profile_complete: true)
+    employer.create_profile!(company_name: "Private Studio", phone: "+91 9999999999", location: "Mumbai")
+
+    get "/api/employers", headers: auth(token)
+
+    assert_response :success
+    entry = response.parsed_body.fetch("employers").find { _1["id"] == employer.id }
+    assert_equal "Private Studio", entry.fetch("companyName")
+    assert_not entry.key?("email")
+    assert_not entry.key?("phone")
+  end
+
+  test "conversation creation enforces opportunity ownership and applicant relationship" do
+    employer_token = register("Conversation Employer", "conversation-employer@example.com", "employer")
+    candidate_token = register("Conversation Candidate", "conversation-candidate@example.com", "jobseeker")
+    outsider_token = register("Conversation Outsider", "conversation-outsider@example.com", "jobseeker")
+    employer = User.find_by!(email: "conversation-employer@example.com")
+    candidate = User.find_by!(email: "conversation-candidate@example.com")
+    outsider = User.find_by!(email: "conversation-outsider@example.com")
+    job = Job.create!(employer:, title: "Conversation Job", company: "Conversation Employer", location: "Mumbai", kind: "Contract", genre: "Pop", description: "A properly documented professional opportunity with clear responsibilities, written terms and collaborative production support.", status: "published")
+
+    post "/api/conversations", params: { candidateId: outsider.id, jobId: job.id }, headers: auth(employer_token), as: :json
+    assert_response :forbidden
+
+    application = job.applications.create!(candidate:, status: "Applied")
+    post "/api/conversations", params: { candidateId: candidate.id, jobId: job.id }, headers: auth(employer_token), as: :json
+    assert_response :created
+    conversation = Conversation.find(response.parsed_body.fetch("id"))
+    assert_equal [candidate.id, employer.id, job.id], [conversation.candidate_id, conversation.employer_id, conversation.job_id]
+
+    admin = User.create!(name: "Conversation Admin", email: "conversation-admin@example.com", password: "StrongPass123!", role: "admin", status: "active")
+    post "/api/conversations", params: { employerId: admin.id }, headers: auth(outsider_token), as: :json
+    assert_response :forbidden
+    assert application.persisted?
+    assert candidate_token.present?
   end
 
   test "health reports postgres-backed service" do

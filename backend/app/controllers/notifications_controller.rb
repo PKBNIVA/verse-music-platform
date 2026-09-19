@@ -2,7 +2,11 @@ class NotificationsController < ApplicationController
   before_action -> { authenticate! }
 
   def index
-    render json: { notifications: current_user.notifications.order(created_at: :desc).limit(100).as_json.map { |row| row.transform_keys { _1.camelize(:lower) }.merge(type: row.delete("kind")) } }
+    scope = current_user.notifications
+    notifications = scope.order(created_at: :desc).limit(100).as_json.map do |row|
+      row.transform_keys { _1.camelize(:lower) }.merge(type: row.delete("kind"))
+    end
+    render json: { notifications:, unread: scope.where(read_at: nil).count }
   end
 
   def update

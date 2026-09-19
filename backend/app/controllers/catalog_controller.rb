@@ -1,9 +1,28 @@
 class CatalogController < ApplicationController
+  ROLE_CATEGORIES = {
+    performance: ["Lead Vocalist", "Backing Vocalist", "Playback Singer", "Classical Vocalist", "Rapper", "MC", "Beatboxer", "Singer-Songwriter", "Frontperson", "Multi-instrumentalist", "Session Musician", "Touring Musician", "Substitute Musician", "Choir Singer", "Conductor", "Band Leader", "Musical Director"],
+    strings: ["Acoustic Guitarist", "Electric Guitarist", "Bass Guitarist", "Ukulele Player", "Mandolin Player", "Banjo Player", "Sitarist", "Sarod Player", "Santoor Player", "Veena Player", "Violinist", "Violist", "Cellist", "Double Bassist", "Harpist", "Esraj Player", "Sarangi Player"],
+    keys_winds: ["Pianist", "Keyboardist", "Synth Player", "Organist", "Harmonium Player", "Accordionist", "Flutist", "Bansuri Player", "Clarinetist", "Saxophonist", "Oboist", "Bassoonist", "Trumpeter", "Trombonist", "French Horn Player", "Tuba Player", "Shehnai Player", "Nadaswaram Player", "Recorder Player"],
+    rhythm: ["Drummer", "Percussionist", "Tabla Player", "Dholak Player", "Dhol Player", "Mridangam Player", "Ghatam Player", "Kanjira Player", "Pakhawaj Player", "Cajon Player", "Congas Player", "Bongo Player", "Electronic Drummer"],
+    writing: ["Composer", "Film Composer", "Songwriter", "Lyricist", "Topliner", "Arranger", "Orchestrator", "Music Producer", "Beat Producer", "Jingle Composer", "Background Score Composer", "Music Supervisor", "Copyist", "Transcriber"],
+    studio: ["Recording Engineer", "Mix Engineer", "Mastering Engineer", "Studio Engineer", "Assistant Engineer", "Vocal Producer", "Tracking Engineer", "Audio Editor", "Dialogue Editor", "Sound Designer", "Foley Artist", "Dolby Atmos Engineer", "Immersive Audio Engineer", "Studio Manager"],
+    live: ["FOH Engineer", "Monitor Engineer", "Live Sound Engineer", "RF Engineer", "System Engineer", "PA Technician", "Backline Technician", "Guitar Technician", "Drum Technician", "Keyboard Technician", "Stage Manager", "Stage Technician", "Patch Technician", "Playback Engineer", "Show Caller", "Show Runner", "Technical Director", "Production Manager", "Tour Manager", "Road Manager", "Crew Chief", "Rigger", "Lighting Designer", "Lighting Programmer", "Lighting Technician", "Video Engineer", "LED Technician", "VJ", "Projectionist", "Broadcast Audio Engineer", "Livestream Engineer"],
+    business: ["Artist Manager", "Talent Manager", "Band Manager", "Booking Agent", "Promoter", "A&R", "Label Manager", "Label Operations", "Music Publisher", "Publishing Administrator", "Sync Licensing Manager", "Rights Manager", "Royalty Analyst", "Metadata Manager", "Distribution Manager", "DSP Relations", "Playlist Curator", "Music Marketing Manager", "PR Manager", "Social Media Manager", "Community Manager", "Tour Booker", "Venue Booker", "Event Producer", "Festival Producer", "Production Coordinator", "Road Coordinator", "Hospitality Coordinator", "Merchandise Manager"],
+    education_wellness: ["Music Teacher", "Vocal Coach", "Instrument Tutor", "Choir Director", "Music Therapist", "Workshop Facilitator", "Curriculum Designer"],
+    media: ["Music Journalist", "Music Photographer", "Concert Photographer", "Music Videographer", "Video Editor", "Content Producer", "Creative Director", "Art Director", "Choreographer", "Dancer", "Stylist", "Makeup Artist"]
+  }.freeze
+  ACT_TYPES = %w[solo duo trio band ensemble orchestra choir dj live-electronic tribute cover-band wedding-band corporate-band session-collective marching-band brass-band folk-group devotional-group fusion-group].freeze
+  EVENT_TYPES = %w[wedding sangeet reception engagement corporate conference award-show festival concert club bar restaurant private-party college brand-activation religious cultural hotel resort cruise studio livestream other].freeze
+  ENGAGEMENT_TYPES = %w[full-time part-time contract freelance one-off-gig recurring-gig session tour residency audition collaboration internship workshop festival wedding corporate-event private-event studio-session remote-session substitute deputy].freeze
+  INSTRUMENTS = ["Vocals", "Acoustic Guitar", "Electric Guitar", "Bass Guitar", "Piano", "Keyboard", "Synthesizer", "Harmonium", "Violin", "Viola", "Cello", "Double Bass", "Sitar", "Sarod", "Santoor", "Veena", "Sarangi", "Esraj", "Ukulele", "Mandolin", "Banjo", "Harp", "Drum Kit", "Electronic Drums", "Tabla", "Dholak", "Dhol", "Mridangam", "Ghatam", "Kanjira", "Pakhawaj", "Cajon", "Congas", "Bongos", "Flute", "Bansuri", "Saxophone", "Clarinet", "Oboe", "Bassoon", "Trumpet", "Trombone", "French Horn", "Tuba", "Shehnai", "Nadaswaram", "Accordion", "Turntables", "Sampler", "Ableton/Playback Rig"].freeze
+
   def taxonomy
     render json: {
       opportunityKinds: %w[job gig audition session tour internship collaboration],
       functionAreas: ["Performance", "Production", "Audio Engineering", "Live & Touring", "Technical", "Management"],
-      workplaces: %w[onsite hybrid remote travel], currencies: %w[INR USD EUR GBP]
+      workplaces: %w[onsite hybrid remote travel], currencies: %w[INR USD EUR GBP],
+      actTypes: ACT_TYPES, eventTypes: EVENT_TYPES, engagementTypes: ENGAGEMENT_TYPES,
+      roleCategories: ROLE_CATEGORIES, instruments: INSTRUMENTS
     }
   end
 end

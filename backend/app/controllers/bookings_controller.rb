@@ -35,14 +35,16 @@ class BookingsController < ApplicationController
   def payment_order
     booking = BookingRequest.includes(:booking_quotes).find(params[:id]); return render_error("Booking not found", :not_found) unless booking.requester_id == current_user.id && booking.status == "accepted"
     quote = booking.booking_quotes.where(status: %w[sent accepted]).order(created_at: :desc).first or return render_error("No active quote", :conflict)
+    return render_error("This quote has expired.", :conflict) if quote.valid_until.present? && quote.valid_until <= Time.current
     return render_error("Deposit is already paid.", :conflict) if booking.booking_payments.exists?(kind: "deposit", status: "paid")
-    existing = booking.booking_payments.find_by(kind: "deposit", status: "created")
+    existing = booking.booking_payments.where(kind: "deposit", status: "created").where.not(provider_order_id: nil).order(created_at: :desc).first
     if existing
       checkout = existing.provider == "razorpay" ? { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], amount: existing.amount * 100, currency: existing.currency, orderId: existing.provider_order_id } : { mode: "mock" }
       return render json: { payment: existing, checkout: }
     end
     return render_error("Live payments are not configured.", :service_unavailable) if Rails.env.production? && ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET").any?(&:blank?)
     amount = (quote.total * quote.deposit_percent / 100.0).round
+    return render_error("Deposit amount must be greater than zero.", :unprocessable_entity) unless amount.positive?
     payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "internal", status: "created")
     checkout = if payment.provider == "razorpay"
       order = RazorpayGateway.new.create_order(amount_paise: amount * 100, currency: quote.currency, receipt: "booking-#{payment.id}", notes: { booking_id: booking.id, payment_id: payment.id })

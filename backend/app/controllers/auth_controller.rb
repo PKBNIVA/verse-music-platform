@@ -25,9 +25,8 @@ class AuthController < ApplicationController
   end
 
   def logout
-    raw = request.authorization.to_s.match(/^Bearer\s+(.+)$/i)&.captures&.first || cookies.encrypted[:verse_session]
+    raw = request.authorization.to_s.match(/^Bearer\s+(.+)$/i)&.captures&.first
     Session.find_by(token_digest: digest(raw))&.destroy!
-    cookies.delete(:verse_session)
     render json: { ok: true }
   end
 
@@ -54,9 +53,9 @@ class AuthController < ApplicationController
     return unless throttle!("password-reset", limit: 10, period: 1.hour)
     if (user = User.find_by(email: params[:email].to_s.downcase))
       token = issue_token("reset_password", 2.hours, user)
-      return render json: token_response(token, "/reset-password")
+      token_response(token, "/reset-password")
     end
-    render json: { ok: true }
+    render json: { ok: true, message: "If an account exists, password reset instructions have been sent." }
   end
 
   def reset_password
@@ -72,7 +71,6 @@ class AuthController < ApplicationController
   def sign_in(user)
     raw = SecureRandom.urlsafe_base64(48)
     user.sessions.create!(token_digest: digest(raw), expires_at: 30.days.from_now)
-    cookies.encrypted[:verse_session] = { value: raw, expires: 30.days.from_now, httponly: true, secure: Rails.env.production?, same_site: Rails.env.production? ? :none : :lax }
     raw
   end
 

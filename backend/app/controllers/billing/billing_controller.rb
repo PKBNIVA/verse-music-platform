@@ -19,17 +19,27 @@ module Billing
       return unless authenticate!("jobseeker", "employer")
       code = params[:planCode]; return render_error("Invalid plan", :bad_request) unless PLANS.key?(code) && code != "free"
       return render json: { salesAssisted: true, message: "Our team will contact you for Enterprise onboarding." } if code == "enterprise"
-      Subscription.where(user: current_user, status: %w[active trialing pending]).update_all(status: "cancelled", updated_at: Time.current)
       if ENV["RAZORPAY_KEY_ID"].blank?
         return render_error("Live billing is not configured.", :service_unavailable) if Rails.env.production?
-        sub = Subscription.create!(user: current_user, plan_code: code, provider: "internal", status: "trialing", trial_started_at: Time.current, trial_ends_at: PLANS[code][:trialDays].days.from_now)
+        trial_days = trial_days_for(code)
+        sub = replace_subscription!(plan_code: code, provider: "internal", status: trial_days.positive? ? "trialing" : "active", trial_started_at: trial_days.positive? ? Time.current : nil, trial_ends_at: trial_days.positive? ? trial_days.days.from_now : nil)
         return render json: { subscription: sub, checkout: { mode: "mock" } }
       end
       plan_id = ENV["RAZORPAY_PLAN_#{code.upcase}"].presence or return render_error("Razorpay plan is not configured.", :service_unavailable)
-      provider_sub = RazorpayGateway.new.create_subscription(plan_id:, notes: { user_id: current_user.id, plan_code: code })
-      sub = Subscription.create!(user: current_user, plan_code: code, provider: "razorpay", provider_subscription_id: provider_sub.fetch("id"), status: "pending")
+      trial_days = trial_days_for(code)
+      trial_ends_at = trial_days.positive? ? trial_days.days.from_now : nil
+      gateway = RazorpayGateway.new
+      provider_sub = gateway.create_subscription(plan_id:, start_at: trial_ends_at&.to_i, notes: { user_id: current_user.id, plan_code: code })
+      previous_provider_ids = Subscription.where(user: current_user, status: %w[active trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).pluck(:provider_subscription_id)
+      previous_provider_ids.each { gateway.cancel_subscription(_1) }
+      sub = replace_subscription!(plan_code: code, provider: "razorpay", provider_subscription_id: provider_sub.fetch("id"), status: trial_days.positive? ? "trialing" : "pending", trial_started_at: trial_days.positive? ? Time.current : nil, trial_ends_at:)
       render json: { subscription: sub, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: provider_sub.fetch("id") } }
     rescue RazorpayGateway::GatewayError => error
+      begin
+        RazorpayGateway.new.cancel_subscription(provider_sub["id"]) if provider_sub&.key?("id")
+      rescue RazorpayGateway::GatewayError => cleanup_error
+        Rails.logger.error("razorpay checkout cleanup failed: #{cleanup_error.class}")
+      end
       render_error(error.message, :bad_gateway)
     end
 
@@ -51,15 +61,44 @@ module Billing
       return render json: { ok: true, duplicate: true } if BillingEvent.exists?(provider: "razorpay", provider_event_id: event_id)
       provider_id = payload.dig("payload", "subscription", "entity", "id")
       sub = Subscription.find_by(provider_subscription_id: provider_id)
-      status = { "subscription.activated" => "active", "subscription.charged" => "active", "subscription.pending" => "pending", "subscription.halted" => "past_due", "subscription.cancelled" => "cancelled" }[payload["event"]]
+      status = { "subscription.authenticated" => (sub&.trial_ends_at&.future? ? "trialing" : "pending"), "subscription.activated" => "active", "subscription.charged" => "active", "subscription.pending" => "pending", "subscription.halted" => "past_due", "subscription.cancelled" => "cancelled" }[payload["event"]]
       Subscription.transaction do
         sub&.update!(status:) if status
-        BillingEvent.create!(provider: "razorpay", provider_event_id: event_id, user: sub&.user, event_type: payload["event"], payload:, processed_at: Time.current)
+        payment = process_booking_payment(payload)
+        BillingEvent.create!(provider: "razorpay", provider_event_id: event_id, user: sub&.user || payment&.payer, event_type: payload["event"], payload:, processed_at: Time.current)
       end
       render json: { ok: true }
+    rescue ActiveRecord::RecordNotUnique
+      render json: { ok: true, duplicate: true }
     end
 
     private
+    def trial_days_for(code)
+      Subscription.where(user: current_user).where.not(plan_code: "free").exists? ? 0 : PLANS[code][:trialDays]
+    end
+
+    def replace_subscription!(**attributes)
+      Subscription.transaction do
+        Subscription.where(user: current_user, status: %w[active trialing pending]).update_all(status: "cancelled", updated_at: Time.current)
+        Subscription.create!(user: current_user, **attributes)
+      end
+    end
+
+    def process_booking_payment(payload)
+      return unless %w[payment.captured order.paid].include?(payload["event"])
+      entity = payload.dig("payload", "payment", "entity") || payload.dig("payload", "order", "entity") || {}
+      notes = entity["notes"] || {}
+      payment = BookingPayment.find_by(id: notes["payment_id"])
+      provider_order_id = entity["order_id"] || entity["id"]
+      payment ||= BookingPayment.find_by(provider_order_id:) if provider_order_id.present?
+      return unless payment&.provider == "razorpay"
+      return payment if payment.status == "paid"
+      return unless payment.provider_order_id.present? && provider_order_id.present?
+      return unless ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id.to_s, provider_order_id.to_s)
+      payment.update!(status: "paid", provider_payment_id: payload.dig("payload", "payment", "entity", "id") || payment.provider_payment_id)
+      payment
+    end
+
     def current_subscription = Subscription.where(user: current_user, status: %w[active trialing pending past_due]).order(created_at: :desc).first
     def effective_plan(sub) = sub && %w[active trialing].include?(sub.status) && (!sub.trial_ends_at || sub.trial_ends_at.future?) ? sub.plan_code : "free"
   end

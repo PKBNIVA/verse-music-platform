@@ -56,7 +56,7 @@ class TalentController < ApplicationController
 
   def employers
     return unless authenticate!
-    render json: { employers: User.employer.active.includes(:profile).map { public_user(_1) } }
+    render json: { employers: User.employer.active.includes(:profile).map { public_employer(_1) } }
   end
 
   private

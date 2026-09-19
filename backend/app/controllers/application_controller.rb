@@ -1,6 +1,4 @@
 class ApplicationController < ActionController::API
-  include ActionController::Cookies
-
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
   rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
 
@@ -8,7 +6,7 @@ class ApplicationController < ActionController::API
 
   def current_user
     return @current_user if defined?(@current_user)
-    token = request.authorization.to_s.match(/^Bearer\s+(.+)$/i)&.captures&.first || cookies.encrypted[:verse_session]
+    token = request.authorization.to_s.match(/^Bearer\s+(.+)$/i)&.captures&.first
     session = Session.active.find_by(token_digest: digest(token)) if token.present?
     @current_user = session&.user
   end
@@ -35,6 +33,23 @@ class ApplicationController < ActionController::API
 
   def public_profile(user)
     public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone")
+  end
+
+  def public_employer(user)
+    profile = user.profile
+    {
+      id: user.id,
+      name: user.name,
+      role: user.role,
+      companyName: profile&.company_name,
+      companyWebsite: profile&.company_website,
+      companySize: profile&.company_size,
+      companyDescription: profile&.company_description,
+      headline: profile&.headline,
+      location: profile&.location,
+      website: profile&.website,
+      verified: profile&.verified || false
+    }
   end
 
   def audit!(action, entity = nil, metadata = {})

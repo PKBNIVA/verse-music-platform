@@ -3,7 +3,7 @@ export class ApiError extends Error { status:number; code?:string; constructor(m
 export async function api<T=any>(path:string,options:RequestInit={}):Promise<T>{
   const headers=new Headers(options.headers||{}); if(options.body!==undefined)headers.set('Content-Type','application/json');
   const token=sessionStorage.getItem('verse_access_token');if(token)headers.set('Authorization',`Bearer ${token}`);
-  const res=await fetch(`${API_BASE}${path}`,{...options,headers,credentials:'include'}); const data=await res.json().catch(()=>({}));
+  const res=await fetch(`${API_BASE}${path}`,{...options,headers,credentials:'omit'}); const data=await res.json().catch(()=>({}));
   if(!res.ok)throw new ApiError(data.error||`Request failed (${res.status})`,res.status,data.code); return data;
 }
 export function setAccessToken(token?:string|null){if(token)sessionStorage.setItem('verse_access_token',token);else sessionStorage.removeItem('verse_access_token')}
@@ -18,6 +18,9 @@ export async function uploadMedia(file:File,onProgress?:(pct:number)=>void):Prom
     const r=await fetch(prep.uploadUrl,{method:prep.method||'PUT',headers:prep.headers||{'Content-Type':file.type},body:file});
     if(!r.ok)throw new ApiError('Upload failed',r.status);onProgress?.(100);return {url:prep.publicUrl||prep.url};
   }
-  const r=await fetch(prep.uploadUrl,{method:'PUT',headers:{'Content-Type':file.type},credentials:'include',body:file});
+  const token=sessionStorage.getItem('verse_access_token');
+  const headers:Record<string,string>={'Content-Type':file.type};if(token)headers.Authorization=`Bearer ${token}`;
+  const uploadUrl=prep.uploadUrl.startsWith('http')?prep.uploadUrl:`${API_BASE.replace(/\/api\/?$/,'')}${prep.uploadUrl}`;
+  const r=await fetch(uploadUrl,{method:'PUT',headers,credentials:'omit',body:file});
   const data=await r.json().catch(()=>({}));if(!r.ok)throw new ApiError(data.error||'Upload failed',r.status);onProgress?.(100);return data;
 }

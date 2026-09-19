@@ -8,15 +8,16 @@ class HealthController < ApplicationController
 
   def readiness
     checks = {
-      database: { ok: ActiveRecord::Base.connection.active?, engine: "postgresql" },
-      frontendUrl: { ok: ENV["FRONTEND_URL"].present? },
-      allowedOrigins: { ok: ENV["ALLOWED_ORIGINS"].present? },
-      storage: { ok: !Rails.env.production? || ENV["AWS_BUCKET"].present?, provider: ENV["AWS_BUCKET"].present? ? "s3" : "local" },
-      payments: { ok: !Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled" },
-      emailDelivery: { ok: !Rails.env.production? || ENV["EMAIL_DELIVERY_WEBHOOK"].present? },
-      adminPassword: { ok: !Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14 },
-      demoData: { ok: !Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true" }
+      database: { ok: ActiveRecord::Base.connection.active?, required: true, engine: "postgresql" },
+      frontendUrl: { ok: ENV["FRONTEND_URL"].present?, required: true },
+      allowedOrigins: { ok: ENV["ALLOWED_ORIGINS"].present?, required: true },
+      adminPassword: { ok: !Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14, required: true },
+      demoData: { ok: !Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true", required: true },
+      storage: { ok: !Rails.env.production? || ENV["AWS_BUCKET"].present?, required: false, provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : "disabled" },
+      payments: { ok: !Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), required: false, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled" },
+      emailDelivery: { ok: !Rails.env.production? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?, required: false, provider: ENV["RESEND_API_KEY"].present? ? "resend" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "webhook" : "disabled" }
     }
-    render json: { ok: checks.values.all? { _1[:ok] }, environment: Rails.env, checks: }, status: checks.values.all? { _1[:ok] } ? :ok : :service_unavailable
+    core_ready = checks.values.select { _1[:required] }.all? { _1[:ok] }
+    render json: { ok: core_ready, integrationsReady: checks.values.all? { _1[:ok] }, environment: Rails.env, checks: }, status: core_ready ? :ok : :service_unavailable
   end
 end

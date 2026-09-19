@@ -1,0 +1,88 @@
+name: Verse QA Agent
+
+on:
+  pull_request:
+  push:
+    branches: [main, codex/rails-api-migration, codex/ux-hardening]
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: Frontend URL to test
+        required: false
+        default: https://verse-music-platform.vercel.app
+      api_base_url:
+        description: Rails API URL including /api
+        required: false
+        default: https://verse-music-platform-production.up.railway.app/api
+      full_browser_matrix:
+        description: Also run Firefox desktop and mobile WebKit
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verse-qa-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  local-experience:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run qa:e2e
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-agent-local-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore
+
+  live-synthetic:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      QA_BASE_URL: ${{ inputs.base_url || 'https://verse-music-platform.vercel.app' }}
+      QA_API_BASE_URL: ${{ inputs.api_base_url || 'https://verse-music-platform-production.up.railway.app/api' }}
+      QA_FULL_MATRIX: ${{ inputs.full_browser_matrix && 'true' || 'false' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install standard browser
+        if: env.QA_FULL_MATRIX != 'true'
+        run: npx playwright install --with-deps chromium
+      - name: Install full browser matrix
+        if: env.QA_FULL_MATRIX == 'true'
+        run: npx playwright install --with-deps chromium firefox webkit
+      - run: npm run qa:e2e
+      - name: Upload failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-agent-live-${{ github.run_id }}
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7
+          if-no-files-found: ignore

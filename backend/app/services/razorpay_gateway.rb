@@ -12,8 +12,10 @@ class RazorpayGateway
     post("orders", amount: amount_paise, currency:, receipt:, notes:)
   end
 
-  def create_subscription(plan_id:, total_count: 100, notes: {})
-    post("subscriptions", plan_id:, total_count:, quantity: 1, customer_notify: 1, notes:)
+  def create_subscription(plan_id:, total_count: 100, start_at: nil, notes: {})
+    payload = { plan_id:, total_count:, quantity: 1, customer_notify: 1, notes: }
+    payload[:start_at] = start_at if start_at
+    post("subscriptions", payload)
   end
 
   def cancel_subscription(subscription_id)
