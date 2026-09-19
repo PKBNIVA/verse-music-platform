@@ -10,10 +10,10 @@ const RUN_TOKEN = 'bulk-20260920-jlc-final';
 const EXPECTED_COUNT = 1058;
 const EXPECTED_B64_LENGTH = 54512;
 const EXPECTED_COMPRESSED_SHA256 = '68657959923ff8afc2943372fdb27e990775c591f3440581b167fb8b17589a02';
-let state = { phase: 'ready', total: 0, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
+let state = { phase: 'ready', total: 0, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
 let running = false;
 let results = [];
-let preflight = [];
+let stop = false;
 
 function payloadDiagnostics() {
   const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
@@ -21,26 +21,19 @@ function payloadDiagnostics() {
   let decoded = Buffer.alloc(0);
   try { decoded = Buffer.from(b64, 'base64'); } catch {}
   const sha = decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null;
-  return { chunkLengths: chunks.map(x => x.length), b64Length: b64.length, expectedB64Length: EXPECTED_B64_LENGTH, decodedLength: decoded.length, decodedSha256: sha, expectedSha256: EXPECTED_COMPRESSED_SHA256, lengthOk: b64.length === EXPECTED_B64_LENGTH, shaOk: sha === EXPECTED_COMPRESSED_SHA256 };
+  return { b64Length: b64.length, decodedSha256: sha, lengthOk: b64.length === EXPECTED_B64_LENGTH, shaOk: sha === EXPECTED_COMPRESSED_SHA256 };
 }
 
 function loadRows() {
-  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
-  const b64 = chunks.join('') || process.env.BULK_DATA_BR;
-  if (!b64) throw new Error('bulk data missing');
+  const b64 = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '').join('') || process.env.BULK_DATA_BR;
   const diag = payloadDiagnostics();
-  console.log('PAYLOAD_DIAG', JSON.stringify(diag));
   if (!diag.lengthOk || !diag.shaOk) throw new Error(`bulk payload integrity mismatch ${JSON.stringify(diag)}`);
-  const json = zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8');
-  const rows = JSON.parse(json);
+  const rows = JSON.parse(zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8'));
   if (!Array.isArray(rows) || rows.length !== EXPECTED_COUNT) throw new Error(`recipient count mismatch: ${rows?.length}`);
   const phones = new Set(rows.map(x => x.p));
   const qrs = new Set(rows.map(x => x.q));
-  if (phones.size !== rows.length) throw new Error('duplicate phone detected');
-  if (qrs.size !== rows.length) throw new Error('duplicate QR detected');
-  for (const x of rows) {
-    if (!x.r || !x.n || !/^\+91\d{10}$/.test(x.p || '') || !/^https:\/\/eventhug-5f90dbe31c80\.herokuapp\.com\//.test(x.q || '')) throw new Error(`invalid row ${x.r}`);
-  }
+  if (phones.size !== rows.length || qrs.size !== rows.length) throw new Error('duplicate phone/QR detected');
+  for (const x of rows) if (!x.r || !x.n || !/^\+91\d{10}$/.test(x.p || '') || !/^https:\/\/eventhug-5f90dbe31c80\.herokuapp\.com\//.test(x.q || '')) throw new Error(`invalid row ${x.r}`);
   return rows;
 }
 
@@ -49,128 +42,74 @@ function mediaUrl(row) {
   return `${NORMALIZER}/q/${row.r}/${token}.jpg`;
 }
 
-async function hitCount(row) {
-  const r = await fetch(`${NORMALIZER}/hit/${row.r}`, { signal: AbortSignal.timeout(15000) });
-  if (!r.ok) throw new Error(`hit status unavailable row=${row.r}`);
-  const j = await r.json();
-  return Number(j.get || 0);
-}
-
-async function preflightOne(row) {
+async function verifyAndSend(row) {
   const url = mediaUrl(row);
-  const r = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(45000) });
-  const type = r.headers.get('content-type') || '';
-  const len = Number(r.headers.get('content-length') || 0);
-  if (!r.ok || type !== 'image/jpeg' || len < 1000 || len > 5_000_000) throw new Error(`media preflight failed row=${row.r} status=${r.status} type=${type} len=${len}`);
-  return { csvRow: row.r, name: row.n, phone: row.p, mediaStatus: r.status, mediaType: type, mediaBytes: len, ok: true };
-}
+  const pf = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(30000) });
+  const type = pf.headers.get('content-type') || '';
+  const len = Number(pf.headers.get('content-length') || 0);
+  if (!pf.ok || type !== 'image/jpeg' || len < 1000 || len > 5_000_000) throw new Error(`media check failed row=${row.r} status=${pf.status} type=${type} len=${len}`);
+  state.checked++;
 
-async function preflightAll(rows) {
-  state.phase = 'preflight';
-  const concurrency = 20;
-  let cursor = 0;
-  const failures = [];
-  async function worker() {
-    while (true) {
-      const i = cursor++;
-      if (i >= rows.length) return;
-      const row = rows[i];
-      try {
-        const p = await preflightOne(row);
-        preflight.push(p);
-        state.preflightPassed++;
-        if (state.preflightPassed % 100 === 0) console.log('PREFLIGHT_PROGRESS', state.preflightPassed, '/', rows.length);
-      } catch (e) {
-        const failure = { csvRow: row.r, name: row.n, phone: row.p, ok: false, error: String(e) };
-        preflight.push(failure);
-        failures.push(failure);
-        console.error('PREFLIGHT_FAIL', JSON.stringify(failure));
-      }
-    }
-  }
-  await Promise.all(Array.from({ length: concurrency }, worker));
-  if (failures.length) throw new Error(`preflight failed for ${failures.length} rows; first=${JSON.stringify(failures[0])}`);
-  console.log('PREFLIGHT_COMPLETE', rows.length);
-}
-
-async function sendOne(row) {
-  const payload = { apiKey: process.env.AISENSY_API_KEY, campaignName: CAMPAIGN, destination: row.p, userName: row.n, source: 'JLC', media: { url: mediaUrl(row), filename: `qr-${row.r}.jpg` }, templateParams: [row.n] };
+  const payload = {
+    apiKey: process.env.AISENSY_API_KEY,
+    campaignName: CAMPAIGN,
+    destination: row.p,
+    userName: row.n,
+    source: 'JLC',
+    media: { url, filename: `qr-${row.r}.jpg` },
+    templateParams: [row.n]
+  };
   const started = new Date().toISOString();
-  const r = await fetch(API_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(45000) });
+  const r = await fetch(API_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(30000) });
   const text = await r.text();
-  let parsed = null;
-  try { parsed = JSON.parse(text); } catch {}
+  let parsed = null; try { parsed = JSON.parse(text); } catch {}
   const accepted = r.ok && String(parsed?.success) === 'true' && Boolean(parsed?.submitted_message_id);
-  const audit = { csvRow: row.r, name: row.n, phone: row.p, startedAt: started, httpStatus: r.status, accepted: Boolean(accepted), messageId: parsed?.submitted_message_id || null, response: accepted ? 'accepted' : text.slice(0, 500) };
+  const audit = { csvRow: row.r, name: row.n, phone: row.p, startedAt: started, httpStatus: r.status, accepted: Boolean(accepted), messageId: parsed?.submitted_message_id || null, mediaBytes: len, response: accepted ? 'accepted' : text.slice(0,300) };
   results.push(audit);
   console.log('AUDIT', JSON.stringify(audit));
   if (!accepted) throw new Error(`AiSensy rejected row ${row.r}: ${text}`);
-  return audit;
+  state.sent++;
+  state.lastRow = row.r;
+  if (state.sent % 50 === 0) console.log('SEND_PROGRESS', state.sent, '/', state.total);
 }
 
 async function runBulk() {
   if (running || state.phase !== 'ready') return state;
-  running = true;
+  running = true; stop = false;
   const startedAt = new Date().toISOString();
   try {
     const rows = loadRows();
-    state = { phase: 'loaded', total: rows.length, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt, completedAt: null };
-    console.log('BULK_START', JSON.stringify({ total: rows.length, campaign: CAMPAIGN, startedAt }));
-    await preflightAll(rows);
-    state.phase = 'sending';
-    for (const row of rows) {
-      state.lastRow = row.r;
-      try {
-        await sendOne(row);
-        state.sent++;
-      } catch (e) {
-        state.failed++;
-        state.phase = 'stopped_on_error';
-        state.error = String(e);
-        state.completedAt = new Date().toISOString();
-        console.error('BULK_STOP', JSON.stringify(state));
-        return state;
+    state = { phase: 'sending', total: rows.length, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt, completedAt: null };
+    console.log('BULK_START', JSON.stringify({ total: rows.length, campaign: CAMPAIGN, startedAt, mode: 'verify-per-recipient-concurrency-6' }));
+    let cursor = 0;
+    async function worker() {
+      while (!stop) {
+        const i = cursor++;
+        if (i >= rows.length) return;
+        const row = rows[i];
+        try { await verifyAndSend(row); }
+        catch (e) {
+          stop = true; state.failed++; state.phase = 'stopped_on_error'; state.error = String(e); state.lastRow = row.r;
+          console.error('BULK_STOP', JSON.stringify(state));
+          return;
+        }
       }
-      await new Promise(r => setTimeout(r, 100));
-      if (state.sent % 50 === 0) console.log('SEND_PROGRESS', state.sent, '/', rows.length);
     }
-    state.phase = 'complete';
-    state.completedAt = new Date().toISOString();
-    console.log('BULK_COMPLETE', JSON.stringify(state));
-    return state;
+    await Promise.all(Array.from({length:6}, worker));
+    if (!stop) { state.phase = 'complete'; state.completedAt = new Date().toISOString(); console.log('BULK_COMPLETE', JSON.stringify(state)); }
+    else state.completedAt = new Date().toISOString();
   } catch (e) {
-    state.phase = 'aborted';
-    state.error = String(e);
-    state.completedAt = new Date().toISOString();
-    console.error('BULK_ABORT', JSON.stringify(state));
-    return state;
+    state.phase = 'aborted'; state.error = String(e); state.completedAt = new Date().toISOString(); console.error('BULK_ABORT', JSON.stringify(state));
   } finally { running = false; }
+  return state;
 }
 
-function jsonResponse(res, obj, status=200) {
-  const body = JSON.stringify(obj);
-  res.statusCode = status;
-  res.setHeader('content-type', 'application/json');
-  res.setHeader('content-length', Buffer.byteLength(body));
-  res.end(body);
-}
+function sendJson(res,obj,status=200){const body=JSON.stringify(obj);res.statusCode=status;res.setHeader('content-type','application/json');res.setHeader('content-length',Buffer.byteLength(body));res.end(body)}
 
-function startBulk(res) {
-  if (!running && state.phase === 'ready') runBulk().catch(e => console.error('UNHANDLED_BULK_ERROR', String(e)));
-  return jsonResponse(res, { accepted: true, state }, 202);
-}
-
-http.createServer((req, res) => {
-  const u = new URL(req.url, 'http://localhost');
-  if (u.pathname === '/status') return jsonResponse(res, state);
-  if (u.pathname === '/results') {
-    const offset = Math.max(0, Number(u.searchParams.get('offset') || 0));
-    const limit = Math.min(250, Math.max(1, Number(u.searchParams.get('limit') || 100)));
-    return jsonResponse(res, { total: results.length, offset, items: results.slice(offset, offset + limit) });
-  }
-  if (u.pathname === `/run/${RUN_TOKEN}` || u.pathname === '/execute-praveen-test-7f2c') return startBulk(res);
-  return jsonResponse(res, { error: 'not found' }, 404);
-}).listen(port, '0.0.0.0', () => {
-  console.log('BULK_SENDER_READY');
-  console.log('PAYLOAD_BOOT_DIAG', JSON.stringify(payloadDiagnostics()));
-});
+http.createServer((req,res)=>{
+  const u=new URL(req.url,'http://localhost');
+  if(u.pathname==='/status') return sendJson(res,state);
+  if(u.pathname==='/results'){const offset=Math.max(0,Number(u.searchParams.get('offset')||0));const limit=Math.min(250,Math.max(1,Number(u.searchParams.get('limit')||100)));return sendJson(res,{total:results.length,offset,items:results.slice(offset,offset+limit)});}
+  if(u.pathname===`/run/${RUN_TOKEN}`||u.pathname==='/execute-praveen-test-7f2c'){if(!running&&state.phase==='ready')runBulk().catch(()=>{});return sendJson(res,{accepted:true,state},202)}
+  return sendJson(res,{error:'not found'},404);
+}).listen(port,'0.0.0.0',()=>{console.log('BULK_SENDER_READY');console.log('PAYLOAD_BOOT_DIAG',JSON.stringify(payloadDiagnostics()))});
