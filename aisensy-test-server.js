@@ -2,12 +2,13 @@ import http from 'node:http';
 
 const port = process.env.PORT || 10000;
 const API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
-const MEDIA = 'https://aisensy-media-normalizer.onrender.com/q/praveen-test-resend/aHR0cHM6Ly9ldmVudGh1Zy01ZjkwZGJlMzFjODAuaGVyb2t1YXBwLmNvbS8vcmFpbHMvYWN0aXZlX3N0b3JhZ2UvYmxvYnMvcmVkaXJlY3QvZXlKZmNtRnBiSE1pT25zaWJXVnpjMkZuWlNJNklrSkJhSEJCY0VKWklpd2laWGh3SWpwdWRXeHNMQ0p3ZFhJaU9pSmliRzlpWDJsa0luMTktLTMxODkxYWIzYjA5MjFhMTAzZTUxYjI2MWU1MmExMmU1MjgzMzc5ZGIvcXJjb2RlLnBuZw.jpg';
+const ROW = 'praveen-test-resend-2';
+const MEDIA = 'https://aisensy-media-normalizer.onrender.com/q/praveen-test-resend-2/aHR0cHM6Ly9ldmVudGh1Zy01ZjkwZGJlMzFjODAuaGVyb2t1YXBwLmNvbS8vcmFpbHMvYWN0aXZlX3N0b3JhZ2UvYmxvYnMvcmVkaXJlY3QvZXlKZmNtRnBiSE1pT25zaWJXVnpjMkZuWlNJNklrSkJhSEJCY0VKWklpd2laWGh3SWpwdWRXeHNMQ0p3ZFhJaU9pSmliRzlpWDJsa0luMTktLTMxODkxYWIzYjA5MjFhMTAzZTUxYjI2MWU1MmExMmU1MjgzMzc5ZGIvcXJjb2RlLnBuZw.jpg';
 let state = { phase: 'ready', error: null, messageId: null, mediaFetched: false, httpStatus: null };
 let running = false;
 
 async function hitCount() {
-  const r = await fetch('https://aisensy-media-normalizer.onrender.com/hit/praveen-test-resend', { signal: AbortSignal.timeout(15000) });
+  const r = await fetch(`https://aisensy-media-normalizer.onrender.com/hit/${ROW}`, { signal: AbortSignal.timeout(15000) });
   const j = await r.json();
   return Number(j.get || 0);
 }
@@ -36,7 +37,7 @@ async function sendTest() {
     state.httpStatus = r.status;
     if (!(r.ok && String(parsed?.success) === 'true' && parsed?.submitted_message_id)) throw new Error(text);
     state.messageId = parsed.submitted_message_id;
-    const deadline = Date.now() + 15000;
+    const deadline = Date.now() + 20000;
     while (Date.now() < deadline) {
       await new Promise(r => setTimeout(r, 300));
       if (await hitCount() > baseline) { state.mediaFetched = true; break; }
