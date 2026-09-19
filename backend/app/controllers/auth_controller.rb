@@ -1,7 +1,10 @@
 class AuthController < ApplicationController
   def register
     return unless throttle!("register", limit: 20, period: 1.hour)
-    user = User.create!(name: params[:name], email: params[:email], password: params[:password], role: params[:role], status: :active)
+    role = params[:role].to_s
+    return render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE") unless %w[jobseeker employer].include?(role)
+
+    user = User.create!(name: params[:name], email: params[:email], password: params[:password], role:, status: :active)
     user.create_profile!
     token = sign_in(user)
     audit!("auth.register", user)
