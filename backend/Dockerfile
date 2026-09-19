@@ -12,7 +12,9 @@ WORKDIR /rails
 ENV RAILS_ENV=production RAILS_LOG_TO_STDOUT=true RAILS_SERVE_STATIC_FILES=false BUNDLE_WITHOUT="development:test"
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build /rails /rails
-RUN useradd rails --create-home --shell /bin/bash && chown -R rails:rails db log storage tmp
+RUN useradd rails --create-home --shell /bin/bash \
+  && mkdir -p db log storage tmp/pids \
+  && chown -R rails:rails db log storage tmp
 USER rails
 EXPOSE 3000
 CMD ["bash", "-lc", "bin/rails db:prepare && bundle exec puma -C config/puma.rb"]
