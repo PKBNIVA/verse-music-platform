@@ -155,7 +155,8 @@ class CreateVerseSchema < ActiveRecord::Migration[7.2]
 
     create_table :subscriptions, id: :string do |t|
       t.references :user, type: :string, null: false, foreign_key: true
-      t.string :plan_code, :provider, :provider_subscription_id, :status, null: false
+      t.string :plan_code, :provider, :status, null: false
+      t.string :provider_subscription_id
       t.datetime :trial_started_at, :trial_ends_at, :current_period_start, :current_period_end
       t.boolean :cancel_at_period_end, default: false, null: false
       t.timestamps
@@ -224,7 +225,8 @@ class CreateVerseSchema < ActiveRecord::Migration[7.2]
     create_table :act_members, id: :string do |t|
       t.references :act, type: :string, null: false, foreign_key: true
       t.references :user, type: :string, foreign_key: true
-      t.string :display_name, :role_name, :instrument, :member_status, null: false
+      t.string :display_name, :role_name, :member_status, null: false
+      t.string :instrument
       t.boolean :is_leader, default: false, null: false
       t.timestamps
     end
@@ -258,7 +260,8 @@ class CreateVerseSchema < ActiveRecord::Migration[7.2]
       t.references :booking_request, type: :string, null: false, foreign_key: true
       t.references :booking_quote, type: :string, foreign_key: true
       t.references :payer, type: :string, null: false, foreign_key: { to_table: :users }
-      t.string :kind, :currency, :provider, :provider_order_id, :provider_payment_id, :status, null: false
+      t.string :kind, :currency, :provider, :status, null: false
+      t.string :provider_order_id, :provider_payment_id
       t.integer :amount, null: false
       t.timestamps
     end
@@ -345,7 +348,8 @@ class CreateVerseSchema < ActiveRecord::Migration[7.2]
 
     create_table :crew_plan_roles, id: :string do |t|
       t.references :crew_plan, type: :string, null: false, foreign_key: true
-      t.string :category, :role_name, :instrument, :priority, null: false
+      t.string :category, :role_name, :priority, null: false
+      t.string :instrument
       t.integer :count_needed, default: 1, null: false
       t.text :rationale
       t.timestamps
