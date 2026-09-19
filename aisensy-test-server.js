@@ -8,38 +8,39 @@ const CAMPAIGN = 'Praveen Kumar QR API Test';
 const NORMALIZER = 'https://aisensy-media-normalizer.onrender.com';
 const RUN_TOKEN = 'bulk-20260920-jlc-final';
 const EXPECTED_COUNT = 1058;
-const EXPECTED_B64_LENGTH = 54512;
-const EXPECTED_COMPRESSED_SHA256 = '68657959923ff8afc2943372fdb27e990775c591f3440581b167fb8b17589a02';
+const EXPECTED_B64_LENGTH = 67936;
+const EXPECTED_COMPRESSED_SHA256 = '3b7afd4b187cbe6d3b25dc43fc9896db020240f021df7a73d3dc5e8d1420c39e';
 let state = { phase: 'ready', total: 0, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
 let running = false;
 let results = [];
 let preflight = [];
 
 function payloadDiagnostics() {
-  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
-  const b64 = chunks.join('') || process.env.BULK_DATA_BR || '';
+  const chunks = Array.from({length:9}, (_,i) => process.env[`BULK_DATA_GZ_${i+1}`] || '');
+  const b64 = chunks.join('');
   let decoded = Buffer.alloc(0);
   try { decoded = Buffer.from(b64, 'base64'); } catch {}
+  const sha = decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null;
   return {
     chunkLengths: chunks.map(x => x.length),
     b64Length: b64.length,
     expectedB64Length: EXPECTED_B64_LENGTH,
     decodedLength: decoded.length,
-    decodedSha256: decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null,
+    decodedSha256: sha,
     expectedSha256: EXPECTED_COMPRESSED_SHA256,
     lengthOk: b64.length === EXPECTED_B64_LENGTH,
-    shaOk: decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') === EXPECTED_COMPRESSED_SHA256 : false
+    shaOk: sha === EXPECTED_COMPRESSED_SHA256
   };
 }
 
 function loadRows() {
-  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
-  const b64 = chunks.join('') || process.env.BULK_DATA_BR;
+  const chunks = Array.from({length:9}, (_,i) => process.env[`BULK_DATA_GZ_${i+1}`] || '');
+  const b64 = chunks.join('');
   if (!b64) throw new Error('bulk data missing');
   const diag = payloadDiagnostics();
   console.log('PAYLOAD_DIAG', JSON.stringify(diag));
   if (!diag.lengthOk || !diag.shaOk) throw new Error(`bulk payload integrity mismatch ${JSON.stringify(diag)}`);
-  const json = zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8');
+  const json = zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
   const rows = JSON.parse(json);
   if (!Array.isArray(rows) || rows.length !== EXPECTED_COUNT) throw new Error(`recipient count mismatch: ${rows?.length}`);
   const phones = new Set(rows.map(x => x.p));
