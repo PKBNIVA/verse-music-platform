@@ -13,8 +13,8 @@ let results = [];
 let preflight = [];
 
 function loadRows() {
-  const b64 = process.env.BULK_DATA_BR;
-  if (!b64) throw new Error('BULK_DATA_BR missing');
+  const b64 = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '').join('') || process.env.BULK_DATA_BR;
+  if (!b64) throw new Error('bulk data missing');
   const json = zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8');
   const rows = JSON.parse(json);
   if (!Array.isArray(rows) || rows.length !== EXPECTED_COUNT) throw new Error(`recipient count mismatch: ${rows?.length}`);
@@ -120,11 +120,11 @@ async function sendOne(row) {
 async function runBulk() {
   if (running || state.phase !== 'ready') return state;
   running = true;
-  state.startedAt = new Date().toISOString();
+  const startedAt = new Date().toISOString();
   try {
     const rows = loadRows();
-    state = { phase: 'loaded', total: rows.length, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt: state.startedAt, completedAt: null };
-    console.log('BULK_START', JSON.stringify({ total: rows.length, campaign: CAMPAIGN, startedAt: state.startedAt }));
+    state = { phase: 'loaded', total: rows.length, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt, completedAt: null };
+    console.log('BULK_START', JSON.stringify({ total: rows.length, campaign: CAMPAIGN, startedAt }));
     await preflightAll(rows);
     state.phase = 'sending';
     for (const row of rows) {
