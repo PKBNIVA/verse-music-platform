@@ -8,48 +8,30 @@ const CAMPAIGN = 'Praveen Kumar QR API Test';
 const NORMALIZER = 'https://aisensy-media-normalizer.onrender.com';
 const RUN_TOKEN = 'bulk-20260920-jlc-final';
 const EXPECTED_COUNT = 1058;
-const EXPECTED_B64_LENGTH = 67936;
-const EXPECTED_COMPRESSED_SHA256 = '3b7afd4b187cbe6d3b25dc43fc9896db020240f021df7a73d3dc5e8d1420c39e';
-const TEST_ROW = {
-  r: 'praveen-test-resend',
-  n: 'Praveen Kumar',
-  p: '+919804636974',
-  q: 'https://eventhug-5f90dbe31c80.herokuapp.com//rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBcEJZIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--31891ab3b0921a103e51b261e52a12e5283379db/qrcode.png'
-};
-
+const EXPECTED_B64_LENGTH = 54512;
+const EXPECTED_COMPRESSED_SHA256 = '68657959923ff8afc2943372fdb27e990775c591f3440581b167fb8b17589a02';
 let state = { phase: 'ready', total: 0, preflightPassed: 0, sent: 0, mediaFetched: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
 let running = false;
 let results = [];
 let preflight = [];
-let testRunning = false;
-let testState = { phase: 'ready', error: null, messageId: null, mediaFetched: false, httpStatus: null, startedAt: null, completedAt: null };
 
 function payloadDiagnostics() {
-  const chunks = Array.from({length:9}, (_,i) => process.env[`BULK_DATA_GZ_${i+1}`] || '');
-  const b64 = chunks.join('');
+  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
+  const b64 = chunks.join('') || process.env.BULK_DATA_BR || '';
   let decoded = Buffer.alloc(0);
   try { decoded = Buffer.from(b64, 'base64'); } catch {}
   const sha = decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null;
-  return {
-    chunkLengths: chunks.map(x => x.length),
-    b64Length: b64.length,
-    expectedB64Length: EXPECTED_B64_LENGTH,
-    decodedLength: decoded.length,
-    decodedSha256: sha,
-    expectedSha256: EXPECTED_COMPRESSED_SHA256,
-    lengthOk: b64.length === EXPECTED_B64_LENGTH,
-    shaOk: sha === EXPECTED_COMPRESSED_SHA256
-  };
+  return { chunkLengths: chunks.map(x => x.length), b64Length: b64.length, expectedB64Length: EXPECTED_B64_LENGTH, decodedLength: decoded.length, decodedSha256: sha, expectedSha256: EXPECTED_COMPRESSED_SHA256, lengthOk: b64.length === EXPECTED_B64_LENGTH, shaOk: sha === EXPECTED_COMPRESSED_SHA256 };
 }
 
 function loadRows() {
-  const chunks = Array.from({length:9}, (_,i) => process.env[`BULK_DATA_GZ_${i+1}`] || '');
-  const b64 = chunks.join('');
+  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
+  const b64 = chunks.join('') || process.env.BULK_DATA_BR;
   if (!b64) throw new Error('bulk data missing');
   const diag = payloadDiagnostics();
   console.log('PAYLOAD_DIAG', JSON.stringify(diag));
   if (!diag.lengthOk || !diag.shaOk) throw new Error(`bulk payload integrity mismatch ${JSON.stringify(diag)}`);
-  const json = zlib.gunzipSync(Buffer.from(b64, 'base64')).toString('utf8');
+  const json = zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8');
   const rows = JSON.parse(json);
   if (!Array.isArray(rows) || rows.length !== EXPECTED_COUNT) throw new Error(`recipient count mismatch: ${rows?.length}`);
   const phones = new Set(rows.map(x => x.p));
@@ -111,42 +93,24 @@ async function preflightAll(rows) {
   console.log('PREFLIGHT_COMPLETE', rows.length);
 }
 
-async function waitForMediaFetch(row, baseline, timeoutMs=15000) {
-  const deadline = Date.now() + timeoutMs;
+async function waitForMediaFetch(row, baseline) {
+  const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     await new Promise(r => setTimeout(r, 350));
     const count = await hitCount(row);
     if (count > baseline) return count;
   }
-  throw new Error(`AiSensy did not GET media for row ${row.r} within ${Math.round(timeoutMs/1000)}s`);
-}
-
-async function postOne(row) {
-  const payload = {
-    apiKey: process.env.AISENSY_API_KEY,
-    campaignName: CAMPAIGN,
-    destination: row.p,
-    userName: row.n,
-    source: 'JLC',
-    media: { url: mediaUrl(row), filename: `qr-${row.r}.jpg` },
-    templateParams: [row.n]
-  };
-  const r = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(45000)
-  });
-  const text = await r.text();
-  let parsed = null;
-  try { parsed = JSON.parse(text); } catch {}
-  return { r, text, parsed };
+  throw new Error(`AiSensy did not GET media for row ${row.r} within 15s`);
 }
 
 async function sendOne(row) {
   const baseline = await hitCount(row);
+  const payload = { apiKey: process.env.AISENSY_API_KEY, campaignName: CAMPAIGN, destination: row.p, userName: row.n, source: 'JLC', media: { url: mediaUrl(row), filename: `qr-${row.r}.jpg` }, templateParams: [row.n] };
   const started = new Date().toISOString();
-  const { r, text, parsed } = await postOne(row);
+  const r = await fetch(API_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(45000) });
+  const text = await r.text();
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch {}
   const accepted = r.ok && String(parsed?.success) === 'true' && Boolean(parsed?.submitted_message_id);
   if (!accepted) {
     const fail = { csvRow: row.r, name: row.n, phone: row.p, startedAt: started, httpStatus: r.status, accepted: false, mediaFetched: false, messageId: parsed?.submitted_message_id || null, response: text.slice(0, 500) };
@@ -159,36 +123,6 @@ async function sendOne(row) {
   results.push(audit);
   console.log('AUDIT', JSON.stringify(audit));
   return audit;
-}
-
-async function runTest() {
-  if (testRunning || testState.phase !== 'ready') return testState;
-  testRunning = true;
-  testState = { phase: 'preflight', error: null, messageId: null, mediaFetched: false, httpStatus: null, startedAt: new Date().toISOString(), completedAt: null };
-  try {
-    const pf = await preflightOne(TEST_ROW);
-    console.log('TEST_PREFLIGHT_OK', JSON.stringify(pf));
-    const baseline = await hitCount(TEST_ROW);
-    testState.phase = 'sending';
-    const { r, text, parsed } = await postOne(TEST_ROW);
-    testState.httpStatus = r.status;
-    const accepted = r.ok && String(parsed?.success) === 'true' && Boolean(parsed?.submitted_message_id);
-    if (!accepted) throw new Error(`AiSensy test rejected: ${text}`);
-    testState.messageId = parsed.submitted_message_id;
-    await waitForMediaFetch(TEST_ROW, baseline, 20000);
-    testState.mediaFetched = true;
-    testState.phase = 'complete';
-    testState.completedAt = new Date().toISOString();
-    console.log('TEST_COMPLETE', JSON.stringify(testState));
-  } catch (e) {
-    testState.phase = 'failed';
-    testState.error = String(e);
-    testState.completedAt = new Date().toISOString();
-    console.error('TEST_FAILED', JSON.stringify(testState));
-  } finally {
-    testRunning = false;
-  }
-  return testState;
 }
 
 async function runBulk() {
@@ -228,12 +162,10 @@ async function runBulk() {
     state.completedAt = new Date().toISOString();
     console.error('BULK_ABORT', JSON.stringify(state));
     return state;
-  } finally {
-    running = false;
-  }
+  } finally { running = false; }
 }
 
-function json(res, obj, status=200) {
+function jsonResponse(res, obj, status=200) {
   const body = JSON.stringify(obj);
   res.statusCode = status;
   res.setHeader('content-type', 'application/json');
@@ -243,37 +175,30 @@ function json(res, obj, status=200) {
 
 function startBulk(res) {
   if (!running && state.phase === 'ready') runBulk().catch(e => console.error('UNHANDLED_BULK_ERROR', String(e)));
-  return json(res, { accepted: true, state }, 202);
-}
-
-function startTest(res) {
-  if (!testRunning && testState.phase === 'ready') runTest().catch(e => console.error('UNHANDLED_TEST_ERROR', String(e)));
-  return json(res, { accepted: true, testState }, 202);
+  return jsonResponse(res, { accepted: true, state }, 202);
 }
 
 http.createServer((req, res) => {
   const u = new URL(req.url, 'http://localhost');
-  if (u.pathname === '/status') return json(res, state);
-  if (u.pathname === '/test-status') return json(res, testState);
-  if (u.pathname === '/test-praveen-resend') return startTest(res);
+  if (u.pathname === '/status') return jsonResponse(res, state);
   if (u.pathname === '/payload-check') {
     let rows = null;
     let error = null;
     try { rows = loadRows(); } catch (e) { error = String(e); }
-    return json(res, { diag: payloadDiagnostics(), rowCount: rows?.length || 0, error });
+    return jsonResponse(res, { diag: payloadDiagnostics(), rowCount: rows?.length || 0, error });
   }
   if (u.pathname === '/preflight-results') {
     const offset = Math.max(0, Number(u.searchParams.get('offset') || 0));
     const limit = Math.min(250, Math.max(1, Number(u.searchParams.get('limit') || 100)));
-    return json(res, { total: preflight.length, offset, items: preflight.slice(offset, offset + limit) });
+    return jsonResponse(res, { total: preflight.length, offset, items: preflight.slice(offset, offset + limit) });
   }
   if (u.pathname === '/results') {
     const offset = Math.max(0, Number(u.searchParams.get('offset') || 0));
     const limit = Math.min(250, Math.max(1, Number(u.searchParams.get('limit') || 100)));
-    return json(res, { total: results.length, offset, items: results.slice(offset, offset + limit) });
+    return jsonResponse(res, { total: results.length, offset, items: results.slice(offset, offset + limit) });
   }
   if (u.pathname === `/run/${RUN_TOKEN}` || u.pathname === '/execute-praveen-test-7f2c') return startBulk(res);
-  return json(res, { error: 'not found' }, 404);
+  return jsonResponse(res, { error: 'not found' }, 404);
 }).listen(port, '0.0.0.0', () => {
   console.log('BULK_SENDER_READY');
   console.log('PAYLOAD_BOOT_DIAG', JSON.stringify(payloadDiagnostics()));
