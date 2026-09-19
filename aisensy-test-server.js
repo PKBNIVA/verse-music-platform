@@ -36,7 +36,6 @@ async function preflightOne(row) {
   const type = r.headers.get('content-type') || '';
   const len = Number(r.headers.get('content-length') || 0);
   if (!r.ok || !type.startsWith('image/jpeg') || len < 1000) throw new Error(`media preflight failed row=${row.r} status=${r.status} type=${type} len=${len}`);
-  return { url, len };
 }
 
 async function preflightAll(rows) {
@@ -75,10 +74,7 @@ async function sendOne(row) {
     templateParams: [row.n]
   };
   const r = await fetch(API_URL, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(45000)
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(45000)
   });
   const text = await r.text();
   let parsed = null;
@@ -87,7 +83,6 @@ async function sendOne(row) {
   const audit = { row: row.r, name: row.n, phone: row.p, httpStatus: r.status, ok: Boolean(ok), messageId: parsed?.submitted_message_id || null, response: ok ? 'accepted' : text.slice(0, 500) };
   console.log('AUDIT', JSON.stringify(audit));
   if (!ok) throw new Error(`AiSensy rejected row ${row.r}: ${text}`);
-  return audit;
 }
 
 async function runBulk() {
@@ -101,13 +96,9 @@ async function runBulk() {
     state.phase = 'sending';
     for (const row of rows) {
       state.lastRow = row.r;
-      try {
-        await sendOne(row);
-        state.sent++;
-      } catch (e) {
-        state.failed++;
-        state.phase = 'stopped_on_error';
-        state.error = String(e);
+      try { await sendOne(row); state.sent++; }
+      catch (e) {
+        state.failed++; state.phase = 'stopped_on_error'; state.error = String(e);
         console.error('BULK_STOP', JSON.stringify(state));
         return state;
       }
@@ -118,18 +109,18 @@ async function runBulk() {
     console.log('BULK_COMPLETE', JSON.stringify(state));
     return state;
   } catch (e) {
-    state.phase = 'aborted';
-    state.error = String(e);
+    state.phase = 'aborted'; state.error = String(e);
     console.error('BULK_ABORT', JSON.stringify(state));
     return state;
-  } finally {
-    running = false;
-  }
+  } finally { running = false; }
 }
 
-http.createServer(async (req, res) => {
+http.createServer((req, res) => {
   res.setHeader('content-type', 'application/json');
   if (req.url === '/status') { res.end(JSON.stringify(state)); return; }
-  if (req.url === `/run/${RUN_TOKEN}`) { const result = await runBulk(); res.end(JSON.stringify(result)); return; }
+  if (req.url === `/run/${RUN_TOKEN}`) {
+    if (!running) { runBulk().catch(e => console.error('UNHANDLED_BULK_ERROR', String(e))); }
+    res.statusCode = 202; res.end(JSON.stringify({ accepted: true, state })); return;
+  }
   res.statusCode = 404; res.end(JSON.stringify({ error: 'not found' }));
 }).listen(port, '0.0.0.0', () => console.log('BULK_SENDER_READY'));
