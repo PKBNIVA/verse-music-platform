@@ -14,8 +14,8 @@ const payload = {
   userName: 'Praveen Kumar',
   source: 'JLC',
   media: {
-    url: 'https://aisensy-praveen-test.onrender.com/qr.png',
-    filename: 'qrcode.png'
+    url: 'https://aisensy-media-normalizer.onrender.com/qr.jpg',
+    filename: 'qrcode.jpg'
   },
   templateParams: ['Praveen Kumar']
 };
