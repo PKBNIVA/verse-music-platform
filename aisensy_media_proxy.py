@@ -1,59 +1,76 @@
-import io, os
-from http.server import BaseHTTPRequestHandler, HTTPServer
+import base64, io, os, threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse
 import requests
 from PIL import Image
 
-SOURCE = 'https://eventhug-5f90dbe31c80.herokuapp.com//rails/active_storage/blobs/redirect/eyJfcmFpbHMiOnsibWVzc2FnZSI6IkJBaHBBcEJZIiwiZXhwIjpudWxsLCJwdXIiOiJibG9iX2lkIn19--31891ab3b0921a103e51b261e52a12e5283379db/qrcode.png'
 PORT = int(os.environ.get('PORT', '10000'))
-JPEG = None
-DIAG = {}
+CACHE = {}
+LOCK = threading.Lock()
+ALLOWED_HOSTS = {'eventhug-5f90dbe31c80.herokuapp.com','sociana.s3.ap-south-1.amazonaws.com'}
 
-def prepare():
-    global JPEG, DIAG
-    r = requests.get(SOURCE, timeout=30, allow_redirects=True)
+def decode_token(token):
+    pad = '=' * (-len(token) % 4)
+    return base64.urlsafe_b64decode((token + pad).encode()).decode()
+
+def normalize(source):
+    host = urlparse(source).hostname
+    if host not in ALLOWED_HOSTS:
+        raise ValueError('source host not allowed')
+    with LOCK:
+        if source in CACHE:
+            return CACHE[source]
+    r = requests.get(source, timeout=30, allow_redirects=True)
     r.raise_for_status()
+    final_host = urlparse(r.url).hostname
+    if final_host not in ALLOWED_HOSTS:
+        raise ValueError('redirect host not allowed')
     im = Image.open(io.BytesIO(r.content))
-    DIAG = {'source_format': im.format, 'source_mode': im.mode, 'source_size': im.size, 'source_bytes': len(r.content), 'source_content_type': r.headers.get('content-type'), 'final_url': r.url}
-    im = im.convert('RGB')
+    im.verify()
+    im = Image.open(io.BytesIO(r.content)).convert('RGB')
     canvas = Image.new('RGB', (1024, 1024), 'white')
     im.thumbnail((900, 900), Image.Resampling.NEAREST)
-    x = (1024 - im.width) // 2
-    y = (1024 - im.height) // 2
-    canvas.paste(im, (x, y))
+    canvas.paste(im, ((1024-im.width)//2, (1024-im.height)//2))
     out = io.BytesIO()
     canvas.save(out, format='JPEG', quality=95, optimize=True)
-    JPEG = out.getvalue()
-    DIAG['jpeg_bytes'] = len(JPEG)
-    print('MEDIA_DIAG', DIAG, flush=True)
+    data = out.getvalue()
+    if not data.startswith(b'\xff\xd8') or len(data) < 1000:
+        raise ValueError('normalized jpeg invalid')
+    with LOCK:
+        CACHE[source] = data
+    return data
 
-prepare()
+def send_image(h, data, head=False):
+    h.send_response(200)
+    h.send_header('Content-Type','image/jpeg')
+    h.send_header('Content-Length',str(len(data)))
+    h.send_header('Cache-Control','public, max-age=86400')
+    h.send_header('Content-Disposition','inline; filename="qrcode.jpg"')
+    h.end_headers()
+    if not head:
+        h.wfile.write(data)
 
 class Handler(BaseHTTPRequestHandler):
+    def _serve_dynamic(self, head=False):
+        try:
+            token=self.path.split('/q/',1)[1].split('.jpg',1)[0]
+            source=decode_token(token)
+            data=normalize(source)
+            print('MEDIA_OK', len(data), self.headers.get('User-Agent',''), flush=True)
+            send_image(self,data,head)
+        except Exception as e:
+            print('MEDIA_FAIL', repr(e), flush=True)
+            self.send_response(422); self.end_headers()
+            if not head: self.wfile.write(b'invalid media')
     def do_HEAD(self):
-        if self.path == '/qr.jpg':
-            self.send_response(200)
-            self.send_header('Content-Type', 'image/jpeg')
-            self.send_header('Content-Length', str(len(JPEG)))
-            self.send_header('Cache-Control', 'public, max-age=86400')
-            self.send_header('Content-Disposition', 'inline; filename="qrcode.jpg"')
-            self.end_headers()
-        else:
-            self.send_response(404); self.end_headers()
+        if self.path.startswith('/q/') and self.path.endswith('.jpg'):
+            return self._serve_dynamic(True)
+        self.send_response(200 if self.path=='/' else 404); self.end_headers()
     def do_GET(self):
-        if self.path == '/qr.jpg':
-            print('MEDIA_HIT', self.command, self.headers.get('User-Agent'), flush=True)
-            self.send_response(200)
-            self.send_header('Content-Type', 'image/jpeg')
-            self.send_header('Content-Length', str(len(JPEG)))
-            self.send_header('Cache-Control', 'public, max-age=86400')
-            self.send_header('Content-Disposition', 'inline; filename="qrcode.jpg"')
-            self.end_headers()
-            self.wfile.write(JPEG)
-        elif self.path == '/diag':
-            import json
-            body=json.dumps(DIAG).encode()
-            self.send_response(200); self.send_header('Content-Type','application/json'); self.send_header('Content-Length',str(len(body))); self.end_headers(); self.wfile.write(body)
-        else:
-            self.send_response(200); self.end_headers(); self.wfile.write(b'ok')
+        if self.path.startswith('/q/') and self.path.endswith('.jpg'):
+            return self._serve_dynamic(False)
+        if self.path=='/health':
+            self.send_response(200); self.end_headers(); self.wfile.write(b'ok'); return
+        self.send_response(200 if self.path=='/' else 404); self.end_headers(); self.wfile.write(b'ok' if self.path=='/' else b'not found')
 
-HTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
+ThreadingHTTPServer(('0.0.0.0', PORT), Handler).serve_forever()
