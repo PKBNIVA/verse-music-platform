@@ -1,6 +1,19 @@
 require "test_helper"
 
 class AuthAndJobsTest < ActionDispatch::IntegrationTest
+  test "public registration cannot create an administrator" do
+    post "/api/auth/register", params: {
+      name: "Unexpected Admin",
+      email: "unexpected-admin@example.com",
+      password: "StrongPass123!",
+      role: "admin"
+    }, as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "INVALID_ROLE", response.parsed_body["code"]
+    assert_not User.exists?(email: "unexpected-admin@example.com")
+  end
+
   test "candidate registration creates a secure session" do
     post "/api/auth/register", params: { name: "QA Candidate", email: "qa@example.com", password: "StrongPass123!", role: "jobseeker" }, as: :json
     assert_response :created
