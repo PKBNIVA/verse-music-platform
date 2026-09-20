@@ -6,49 +6,79 @@ const port = process.env.PORT || 10000;
 const API_URL = 'https://backend.aisensy.com/campaign/t1/api/v2';
 const CAMPAIGN = 'Praveen Kumar QR API Test';
 const NORMALIZER = 'https://aisensy-media-normalizer.onrender.com';
-const RUN_TOKEN = 'bulk-20260920-jlc-final';
-const EXPECTED_COUNT = 1058;
-const EXPECTED_B64_LENGTH = 54512;
-const EXPECTED_COMPRESSED_SHA256 = '68657959923ff8afc2943372fdb27e990775c591f3440581b167fb8b17589a02';
-let state = { phase: 'ready', total: 0, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
-let running = false;
-let results = [];
-let stop = false;
+const OLD_EXPECTED_COUNT = 1058;
+const OLD_EXPECTED_B64_LENGTH = 54512;
+const OLD_EXPECTED_SHA256 = '68657959923ff8afc2943372fdb27e990775c591f3440581b167fb8b17589a02';
+const NEW_EXPECTED_COUNT = 12;
+const RUN_ID = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
 
-function payloadDiagnostics() {
-  const chunks = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '');
-  const b64 = chunks.join('') || process.env.BULK_DATA_BR || '';
-  let decoded = Buffer.alloc(0);
-  try { decoded = Buffer.from(b64, 'base64'); } catch {}
-  const sha = decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null;
-  return { b64Length: b64.length, decodedSha256: sha, lengthOk: b64.length === EXPECTED_B64_LENGTH, shaOk: sha === EXPECTED_COMPRESSED_SHA256 };
+function blankState() {
+  return { phase: 'ready', total: 0, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt: null, completedAt: null };
 }
 
-function loadRows() {
-  const b64 = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '').join('') || process.env.BULK_DATA_BR;
-  const diag = payloadDiagnostics();
-  if (!diag.lengthOk || !diag.shaOk) throw new Error(`bulk payload integrity mismatch ${JSON.stringify(diag)}`);
-  const rows = JSON.parse(zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8'));
-  if (!Array.isArray(rows) || rows.length !== EXPECTED_COUNT) throw new Error(`recipient count mismatch: ${rows?.length}`);
+const jobs = {
+  old: { state: blankState(), running: false, stop: false, results: [] },
+  new: { state: blankState(), running: false, stop: false, results: [] }
+};
+
+function validateRows(rows, expected, label) {
+  if (!Array.isArray(rows) || rows.length !== expected) throw new Error(`${label} count mismatch: ${rows?.length}`);
   const phones = new Set(rows.map(x => x.p));
   const qrs = new Set(rows.map(x => x.q));
-  if (phones.size !== rows.length || qrs.size !== rows.length) throw new Error('duplicate phone/QR detected');
-  for (const x of rows) if (!x.r || !x.n || !/^\+91\d{10}$/.test(x.p || '') || !/^https:\/\/eventhug-5f90dbe31c80\.herokuapp\.com\//.test(x.q || '')) throw new Error(`invalid row ${x.r}`);
+  if (phones.size !== rows.length) throw new Error(`${label} duplicate phone detected`);
+  if (qrs.size !== rows.length) throw new Error(`${label} duplicate QR detected`);
+  for (const x of rows) {
+    if (!x.r || !String(x.n || '').trim() || !/^\+91\d{10}$/.test(x.p || '') || !/^https:\/\/eventhug-5f90dbe31c80\.herokuapp\.com\//.test(x.q || '')) {
+      throw new Error(`${label} invalid row ${x.r}`);
+    }
+  }
   return rows;
 }
 
-function mediaUrl(row) {
-  const token = Buffer.from(row.q, 'utf8').toString('base64url');
-  return `${NORMALIZER}/q/${row.r}/${token}.jpg`;
+function oldPayloadDiagnostics() {
+  const b64 = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '').join('') || process.env.BULK_DATA_BR || '';
+  let decoded = Buffer.alloc(0);
+  try { decoded = Buffer.from(b64, 'base64'); } catch {}
+  const sha = decoded.length ? crypto.createHash('sha256').update(decoded).digest('hex') : null;
+  return { b64Length: b64.length, decodedSha256: sha, lengthOk: b64.length === OLD_EXPECTED_B64_LENGTH, shaOk: sha === OLD_EXPECTED_SHA256 };
 }
 
-async function verifyAndSend(row) {
-  const url = mediaUrl(row);
+function loadOldRows() {
+  const b64 = [1,2,3,4].map(i => process.env[`BULK_DATA_BR_${i}`] || '').join('') || process.env.BULK_DATA_BR;
+  const diag = oldPayloadDiagnostics();
+  if (!diag.lengthOk || !diag.shaOk) throw new Error(`old payload integrity mismatch ${JSON.stringify(diag)}`);
+  const rows = JSON.parse(zlib.brotliDecompressSync(Buffer.from(b64, 'base64')).toString('utf8'));
+  return validateRows(rows, OLD_EXPECTED_COUNT, 'old');
+}
+
+function loadNewRows() {
+  const b64 = process.env.NEW_DATA_ZLIB_B64 || '';
+  if (!b64) throw new Error('new payload missing');
+  const rows = JSON.parse(zlib.inflateSync(Buffer.from(b64, 'base64')).toString('utf8'));
+  return validateRows(rows, NEW_EXPECTED_COUNT, 'new');
+}
+
+function verifySets(oldRows, newRows) {
+  const oldPhones = new Set(oldRows.map(x => x.p));
+  const overlap = newRows.filter(x => oldPhones.has(x.p));
+  if (overlap.length) throw new Error(`new/old phone overlap detected: ${overlap.map(x => x.p).join(',')}`);
+}
+
+function mediaUrl(jobName, row) {
+  const token = Buffer.from(row.q, 'utf8').toString('base64url');
+  return `${NORMALIZER}/q/${jobName}-${row.r}/${token}.jpg?v=${RUN_ID}-${jobName}`;
+}
+
+async function verifyAndSend(jobName, row) {
+  const job = jobs[jobName];
+  const url = mediaUrl(jobName, row);
   const pf = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(30000) });
   const type = pf.headers.get('content-type') || '';
   const len = Number(pf.headers.get('content-length') || 0);
-  if (!pf.ok || type !== 'image/jpeg' || len < 1000 || len > 5_000_000) throw new Error(`media check failed row=${row.r} status=${pf.status} type=${type} len=${len}`);
-  state.checked++;
+  if (!pf.ok || type !== 'image/jpeg' || len < 1000 || len > 5_000_000) {
+    throw new Error(`media check failed job=${jobName} row=${row.r} status=${pf.status} type=${type} len=${len}`);
+  }
+  job.state.checked++;
 
   const payload = {
     apiKey: process.env.AISENSY_API_KEY,
@@ -56,60 +86,120 @@ async function verifyAndSend(row) {
     destination: row.p,
     userName: row.n,
     source: 'JLC',
-    media: { url, filename: `qr-${row.r}.jpg` },
+    media: { url, filename: `qr-${jobName}-${row.r}.jpg` },
     templateParams: [row.n]
   };
+
   const started = new Date().toISOString();
-  const r = await fetch(API_URL, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(30000) });
+  const r = await fetch(API_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30000)
+  });
   const text = await r.text();
-  let parsed = null; try { parsed = JSON.parse(text); } catch {}
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch {}
   const accepted = r.ok && String(parsed?.success) === 'true' && Boolean(parsed?.submitted_message_id);
-  const audit = { csvRow: row.r, name: row.n, phone: row.p, startedAt: started, httpStatus: r.status, accepted: Boolean(accepted), messageId: parsed?.submitted_message_id || null, mediaBytes: len, response: accepted ? 'accepted' : text.slice(0,300) };
-  results.push(audit);
+  const audit = {
+    job: jobName,
+    sourceRow: row.r,
+    name: row.n,
+    phone: row.p,
+    startedAt: started,
+    httpStatus: r.status,
+    accepted: Boolean(accepted),
+    messageId: parsed?.submitted_message_id || null,
+    mediaBytes: len,
+    mediaUrlVersion: RUN_ID,
+    response: accepted ? 'accepted' : text.slice(0, 300)
+  };
+  job.results.push(audit);
   console.log('AUDIT', JSON.stringify(audit));
-  if (!accepted) throw new Error(`AiSensy rejected row ${row.r}: ${text}`);
-  state.sent++;
-  state.lastRow = row.r;
-  if (state.sent % 50 === 0) console.log('SEND_PROGRESS', state.sent, '/', state.total);
+  if (!accepted) throw new Error(`AiSensy rejected job=${jobName} row=${row.r}: ${text}`);
+
+  job.state.sent++;
+  job.state.lastRow = row.r;
+  if (job.state.sent % 50 === 0 || job.state.sent === job.state.total) {
+    console.log('SEND_PROGRESS', JSON.stringify({ job: jobName, sent: job.state.sent, total: job.state.total }));
+  }
 }
 
-async function runBulk() {
-  if (running || state.phase !== 'ready') return state;
-  running = true; stop = false;
-  const startedAt = new Date().toISOString();
-  try {
-    const rows = loadRows();
-    state = { phase: 'sending', total: rows.length, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt, completedAt: null };
-    console.log('BULK_START', JSON.stringify({ total: rows.length, campaign: CAMPAIGN, startedAt, mode: 'verify-per-recipient-concurrency-6' }));
-    let cursor = 0;
-    async function worker() {
-      while (!stop) {
-        const i = cursor++;
-        if (i >= rows.length) return;
-        const row = rows[i];
-        try { await verifyAndSend(row); }
-        catch (e) {
-          stop = true; state.failed++; state.phase = 'stopped_on_error'; state.error = String(e); state.lastRow = row.r;
-          console.error('BULK_STOP', JSON.stringify(state));
-          return;
-        }
+async function runJob(jobName, rows, concurrency) {
+  const job = jobs[jobName];
+  if (job.running || job.state.phase !== 'ready') return job.state;
+  job.running = true;
+  job.stop = false;
+  job.state = { phase: 'sending', total: rows.length, checked: 0, sent: 0, failed: 0, lastRow: null, error: null, startedAt: new Date().toISOString(), completedAt: null };
+  console.log('BULK_START', JSON.stringify({ job: jobName, total: rows.length, campaign: CAMPAIGN, runId: RUN_ID, concurrency }));
+  let cursor = 0;
+  async function worker() {
+    while (!job.stop) {
+      const i = cursor++;
+      if (i >= rows.length) return;
+      const row = rows[i];
+      try {
+        await verifyAndSend(jobName, row);
+      } catch (e) {
+        job.stop = true;
+        job.state.failed++;
+        job.state.phase = 'stopped_on_error';
+        job.state.error = String(e);
+        job.state.lastRow = row.r;
+        console.error('BULK_STOP', JSON.stringify({ job: jobName, ...job.state }));
+        return;
       }
     }
-    await Promise.all(Array.from({length:6}, worker));
-    if (!stop) { state.phase = 'complete'; state.completedAt = new Date().toISOString(); console.log('BULK_COMPLETE', JSON.stringify(state)); }
-    else state.completedAt = new Date().toISOString();
-  } catch (e) {
-    state.phase = 'aborted'; state.error = String(e); state.completedAt = new Date().toISOString(); console.error('BULK_ABORT', JSON.stringify(state));
-  } finally { running = false; }
-  return state;
+  }
+  try {
+    await Promise.all(Array.from({ length: concurrency }, worker));
+    if (!job.stop) {
+      job.state.phase = 'complete';
+      job.state.completedAt = new Date().toISOString();
+      console.log('BULK_COMPLETE', JSON.stringify({ job: jobName, ...job.state }));
+    } else {
+      job.state.completedAt = new Date().toISOString();
+    }
+  } finally {
+    job.running = false;
+  }
+  return job.state;
 }
 
-function sendJson(res,obj,status=200){const body=JSON.stringify(obj);res.statusCode=status;res.setHeader('content-type','application/json');res.setHeader('content-length',Buffer.byteLength(body));res.end(body)}
+async function startAll() {
+  const oldRows = loadOldRows();
+  const newRows = loadNewRows();
+  verifySets(oldRows, newRows);
+  console.log('ALL_VALIDATED', JSON.stringify({ old: oldRows.length, new: newRows.length, totalSubmissions: oldRows.length + newRows.length, runId: RUN_ID }));
+  runJob('old', oldRows, 6).catch(e => console.error('UNHANDLED_OLD', String(e)));
+  runJob('new', newRows, 3).catch(e => console.error('UNHANDLED_NEW', String(e)));
+}
 
-http.createServer((req,res)=>{
-  const u=new URL(req.url,'http://localhost');
-  if(u.pathname==='/status') return sendJson(res,state);
-  if(u.pathname==='/results'){const offset=Math.max(0,Number(u.searchParams.get('offset')||0));const limit=Math.min(250,Math.max(1,Number(u.searchParams.get('limit')||100)));return sendJson(res,{total:results.length,offset,items:results.slice(offset,offset+limit)});}
-  if(u.pathname===`/run/${RUN_TOKEN}`||u.pathname==='/execute-praveen-test-7f2c'){if(!running&&state.phase==='ready')runBulk().catch(()=>{});return sendJson(res,{accepted:true,state},202)}
-  return sendJson(res,{error:'not found'},404);
-}).listen(port,'0.0.0.0',()=>{console.log('BULK_SENDER_READY');console.log('PAYLOAD_BOOT_DIAG',JSON.stringify(payloadDiagnostics()))});
+function sendJson(res, obj, status = 200) {
+  const body = JSON.stringify(obj);
+  res.statusCode = status;
+  res.setHeader('content-type', 'application/json');
+  res.setHeader('content-length', Buffer.byteLength(body));
+  res.end(body);
+}
+
+http.createServer((req, res) => {
+  const u = new URL(req.url, 'http://localhost');
+  if (u.pathname === '/status') return sendJson(res, { runId: RUN_ID, old: jobs.old.state, new: jobs.new.state });
+  if (u.pathname === '/results') {
+    const jobName = u.searchParams.get('job') === 'new' ? 'new' : 'old';
+    const offset = Math.max(0, Number(u.searchParams.get('offset') || 0));
+    const limit = Math.min(250, Math.max(1, Number(u.searchParams.get('limit') || 100)));
+    const arr = jobs[jobName].results;
+    return sendJson(res, { job: jobName, total: arr.length, offset, items: arr.slice(offset, offset + limit) });
+  }
+  if (u.pathname === '/run-all' || u.pathname === '/execute-praveen-test-7f2c') {
+    if (jobs.old.state.phase === 'ready' && jobs.new.state.phase === 'ready') {
+      try { startAll(); } catch (e) { console.error('START_ALL_ABORT', String(e)); return sendJson(res, { accepted: false, error: String(e) }, 500); }
+    }
+    return sendJson(res, { accepted: true, runId: RUN_ID, old: jobs.old.state, new: jobs.new.state }, 202);
+  }
+  return sendJson(res, { error: 'not found' }, 404);
+}).listen(port, '0.0.0.0', () => {
+  console.log('DUAL_BULK_SENDER_READY', JSON.stringify({ runId: RUN_ID, oldDiag: oldPayloadDiagnostics(), newPayloadPresent: Boolean(process.env.NEW_DATA_ZLIB_B64) }));
+});
