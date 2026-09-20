@@ -52,9 +52,9 @@ function loadOldRows() {
 }
 
 function loadNewRows() {
-  const b64 = process.env.NEW_DATA_ZLIB_B64 || '';
-  if (!b64) throw new Error('new payload missing');
-  const rows = JSON.parse(zlib.inflateSync(Buffer.from(b64, 'base64')).toString('utf8'));
+  const json = process.env.NEW_DATA_JSON || '';
+  if (!json) throw new Error('new payload missing');
+  const rows = JSON.parse(json);
   return validateRows(rows, NEW_EXPECTED_COUNT, 'new');
 }
 
@@ -201,5 +201,5 @@ http.createServer((req, res) => {
   }
   return sendJson(res, { error: 'not found' }, 404);
 }).listen(port, '0.0.0.0', () => {
-  console.log('DUAL_BULK_SENDER_READY', JSON.stringify({ runId: RUN_ID, oldDiag: oldPayloadDiagnostics(), newPayloadPresent: Boolean(process.env.NEW_DATA_ZLIB_B64) }));
+  console.log('DUAL_BULK_SENDER_READY', JSON.stringify({ runId: RUN_ID, oldDiag: oldPayloadDiagnostics(), newPayloadPresent: Boolean(process.env.NEW_DATA_JSON) }));
 });
