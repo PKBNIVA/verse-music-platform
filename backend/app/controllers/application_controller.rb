@@ -12,9 +12,18 @@ class ApplicationController < ActionController::API
   end
 
   def authenticate!(*roles)
-    return render_error("Authentication required", :unauthorized) unless current_user
-    return render_error("This account is not active.", :forbidden, "ACCOUNT_INACTIVE") unless current_user.active?
-    return render_error("You do not have permission to perform this action", :forbidden) if roles.any? && !roles.map(&:to_s).include?(current_user.role)
+    unless current_user
+      render_error("Authentication required", :unauthorized)
+      return false
+    end
+    unless current_user.active?
+      render_error("This account is not active.", :forbidden, "ACCOUNT_INACTIVE")
+      return false
+    end
+    if roles.any? && !roles.map(&:to_s).include?(current_user.role)
+      render_error("You do not have permission to perform this action", :forbidden)
+      return false
+    end
     true
   end
 
