@@ -5,12 +5,11 @@ services:
     region: singapore
     plan: starter
     branch: main
-    autoDeployTrigger: commit
+    autoDeployTrigger: checksPass
     buildCommand: npm ci && npm run build
     startCommand: npm start
     healthCheckPath: /api/health
     numInstances: 1
-    maxShutdownDelaySeconds: 30
     disk:
       name: verse-data
       mountPath: /var/data
