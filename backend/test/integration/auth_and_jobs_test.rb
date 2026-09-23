@@ -139,6 +139,27 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal "verse-rails", response.parsed_body["service"]
   end
 
+  test "user supplied links reject unsafe URL schemes" do
+    token = register("Safe Link User", "safe-links@example.com", "jobseeker")
+
+    post "/api/portfolio", params: {
+      type: "audio",
+      title: "Unsafe sample",
+      url: "javascript:alert(document.domain)"
+    }, headers: auth(token), as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/HTTP or HTTPS URL/, response.parsed_body.fetch("error"))
+
+    post "/api/verification-requests", params: {
+      kind: "identity",
+      evidenceUrl: "data:text/html,<script>alert(1)</script>"
+    }, headers: auth(token), as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/HTTP or HTTPS URL/, response.parsed_body.fetch("error"))
+  end
+
   test "bearer-authenticated hiring flow works from posting through shortlist" do
     employer_token = register("Hiring Studio", "studio@example.com", "employer")
     candidate_token = register("Working Artist", "artist@example.com", "jobseeker")
