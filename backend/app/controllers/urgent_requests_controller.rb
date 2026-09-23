@@ -3,7 +3,7 @@ class UrgentRequestsController < ApplicationController
   def index
     visible = UrgentRequest.where(status: "open").where("start_at >= ?", 1.day.ago)
       .or(UrgentRequest.where(requester: current_user))
-    scope = UrgentRequest.includes(:requester).where(id: visible.select(:id)).order(start_at: :asc)
+    scope = UrgentRequest.includes(:requester, :urgent_request_responses).where(id: visible.select(:id)).order(start_at: :asc)
     scope = scope.where("city ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:city])}%") if params[:city].present?
     if params[:role].present?
       role = "%#{ActiveRecord::Base.sanitize_sql_like(params[:role])}%"
