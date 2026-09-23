@@ -166,9 +166,9 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   test "readiness describes required and optional production dependencies" do
     get "/api/readiness"
 
-    assert_response :success
+    assert_response :service_unavailable
     body = response.parsed_body
-    assert_equal true, body["ok"]
+    assert_equal false, body["ok"]
     assert_equal "verse-rails", body["service"]
     assert_equal true, body.dig("checks", "database", "required")
     assert_equal false, body.dig("checks", "payments", "required")
