@@ -70,8 +70,11 @@ Rails.application.routes.draw do
     get "public/acts", to: "acts#public_index"
     get "public/acts/:id", to: "acts#public_show"
     get "acts/me", to: "acts#mine"
-    resources :acts, only: %i[index show create] do
-      member { post :members, to: "acts#add_member" }
+    resources :acts, only: %i[index show create update destroy] do
+      member do
+        post :members, to: "acts#add_member"
+        delete "members/:member_id", to: "acts#remove_member"
+      end
     end
     resources :bookings, only: %i[index create] do
       member do
