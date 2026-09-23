@@ -6,7 +6,7 @@ class Act < ApplicationRecord
   attribute :languages, :json, default: -> { [] }
   attribute :event_types, :json, default: -> { [] }
   validates :tech_rider_url, :hospitality_rider_url, :promo_url, safe_http_url: true, allow_blank: true
-  validates :name, :act_type, :city, presence: true
+  validates :name, :act_type, presence: true
   validates :status, inclusion: { in: %w[active inactive draft] }
   validates :lineup_size, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
   validates :min_fee, :max_fee, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
