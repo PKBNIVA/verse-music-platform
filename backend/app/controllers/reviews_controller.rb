@@ -7,7 +7,10 @@ class ReviewsController < ApplicationController
 
   def create
     return unless authenticate!("jobseeker")
-    review = Review.create!(author: current_user, employer_id: params[:employerId], rating: params[:rating], title: params[:title], body: params[:body], status: "pending")
+    employer = User.employer.active.find(params[:employerId])
+    worked_together = Application.joins(:job).exists?(candidate_id: current_user.id, status: "Hired", jobs: { employer_id: employer.id })
+    return render_error("You can review an employer only after a completed hire.", :forbidden, "REVIEW_NOT_ELIGIBLE") unless worked_together
+    review = Review.create!(author: current_user, employer:, rating: params[:rating], title: params[:title], body: params[:body], status: "pending")
     render json: { id: review.id }, status: :created
   end
 end

@@ -207,6 +207,14 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "Shortlisted", Application.find(application_id).status
     assert_equal %w[created status_changed], Application.find(application_id).application_events.order(:created_at).pluck(:event_type)
+
+    employer = User.find_by!(email: "studio@example.com")
+    post "/api/reviews", params: { employerId: employer.id, rating: 5, body: "A professional engagement." }, headers: auth(candidate_token), as: :json
+    assert_response :forbidden
+    patch "/api/employer/applications/#{application_id}", params: { status: "Hired" }, headers: auth(employer_token), as: :json
+    assert_response :success
+    post "/api/reviews", params: { employerId: employer.id, rating: 5, body: "A professional engagement." }, headers: auth(candidate_token), as: :json
+    assert_response :created
   end
 
   test "booking enquiry quote acceptance and mock deposit are persisted" do
