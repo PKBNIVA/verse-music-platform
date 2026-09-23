@@ -22,13 +22,21 @@ class RazorpayGateway
     post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: 1)
   end
 
+  def payment(payment_id)
+    request(:get, "payments/#{payment_id}")
+  end
+
   private
 
   def post(path, payload)
-    response = Faraday.post("#{API_URL}/#{path}") do |request|
+    request(:post, path, payload)
+  end
+
+  def request(method, path, payload = nil)
+    response = Faraday.public_send(method, "#{API_URL}/#{path}") do |request|
       request.headers["Content-Type"] = "application/json"
       request.headers["Authorization"] = "Basic #{Base64.strict_encode64("#{@key_id}:#{@key_secret}")}" 
-      request.body = JSON.generate(payload)
+      request.body = JSON.generate(payload) if payload
       request.options.timeout = 15
     end
     body = JSON.parse(response.body.presence || "{}")
