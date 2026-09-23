@@ -1,8 +1,17 @@
 class ApplicationController < ActionController::API
+  before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
   rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
 
   private
+
+  def require_verified_email_for_mutation
+    return if request.get? || request.head? || is_a?(AuthController)
+    return unless ENV["REQUIRE_EMAIL_VERIFICATION"] == "true"
+    return unless current_user && !current_user.admin? && !current_user.email_verified?
+
+    render_error("Verify your email before making changes.", :forbidden, "EMAIL_NOT_VERIFIED")
+  end
 
   def current_user
     return @current_user if defined?(@current_user)
