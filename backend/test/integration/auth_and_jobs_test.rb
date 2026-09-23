@@ -159,6 +159,20 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     get "/api/health"
     assert_response :success
     assert_equal "verse-rails", response.parsed_body["service"]
+    assert response.parsed_body["release"].present?
+    assert response.parsed_body["time"].present?
+  end
+
+  test "readiness describes required and optional production dependencies" do
+    get "/api/readiness"
+
+    assert_response :service_unavailable
+    body = response.parsed_body
+    assert_equal false, body["ok"]
+    assert_equal "verse-rails", body["service"]
+    assert_equal true, body.dig("checks", "database", "required")
+    assert_equal false, body.dig("checks", "payments", "required")
+    assert_includes %w[disabled razorpay], body.dig("checks", "payments", "provider")
   end
 
   test "user supplied links reject unsafe URL schemes" do

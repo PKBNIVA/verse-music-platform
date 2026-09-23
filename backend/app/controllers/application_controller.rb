@@ -1,9 +1,22 @@
 class ApplicationController < ActionController::API
+  around_action :log_request
   before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
   rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
 
   private
+
+  def log_request
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    yield
+  ensure
+    duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1_000).round(1)
+    Rails.logger.info({
+      event: "http_request", requestId: request.request_id, method: request.method,
+      path: request.path, status: response.status, durationMs: duration_ms,
+      userId: @current_user&.id
+    }.compact.to_json)
+  end
 
   def require_verified_email_for_mutation
     return if request.get? || request.head? || is_a?(AuthController)
