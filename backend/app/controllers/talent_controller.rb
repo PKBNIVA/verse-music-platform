@@ -69,6 +69,10 @@ class TalentController < ApplicationController
       scope = scope.joins(:profile).where("users.name ILIKE :q OR profiles.headline ILIKE :q OR profiles.bio ILIKE :q", q:)
     end
     scope = scope.joins(:profile).where("profiles.location ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:location])}%") if params[:location].present?
+    scope = scope.joins(:profile).where("profiles.roles::text ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:role])}%") if params[:role].present?
+    scope = scope.joins(:profile).where("profiles.instruments::text ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:instrument])}%") if params[:instrument].present?
+    scope = scope.joins(:profile).where(profiles: { verified: true }) if params[:verified] == "true"
+    scope = scope.joins(:profile).where(profiles: { remote_recording: true }) if params[:remoteRecording] == "true"
     scope
   end
 end
