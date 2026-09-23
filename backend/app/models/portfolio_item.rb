@@ -6,6 +6,7 @@ class PortfolioItem < ApplicationRecord
   attribute :instruments, :json, default: -> { [] }
   attribute :media_metadata, :json, default: -> { {} }
   validates :title, :kind, :url, presence: true
+  validates :url, :thumbnail_url, :waveform_url, safe_http_url: true, allow_blank: true
 
   def api_json = attributes.transform_keys { _1.camelize(:lower) }.merge(type: kind)
 end
