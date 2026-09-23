@@ -358,3 +358,12 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :created
     response.parsed_body.fetch("accessToken")
   end
+
+  def login(email)
+    post "/api/auth/login", params: { email:, password: "StrongPass123!" }, as: :json
+    assert_response :success
+    response.parsed_body.fetch("accessToken")
+  end
+
+  def auth(token) = { "Authorization" => "Bearer #{token}" }
+end
