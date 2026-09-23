@@ -11,7 +11,12 @@ module Admin
         check.call("Table: #{table}", ActiveRecord::Base.connection.data_source_exists?(table), "Available", "high")
       end
       check.call("Production frontend URL", !Rails.env.production? || ENV["FRONTEND_URL"].to_s.start_with?("https://"), ENV["FRONTEND_URL"].presence || "Not configured", "high")
-      check.call("Object storage", !Rails.env.production? || ENV["AWS_BUCKET"].present?, ENV["AWS_BUCKET"].present? ? "Configured" : "Not configured", "medium")
+      persistent_storage = ENV["PERSISTENT_UPLOADS"] == "true" && Rails.root.join("storage").writable?
+      storage_ready = ENV["AWS_BUCKET"].present? || persistent_storage
+      storage_detail = ENV["AWS_BUCKET"].present? ? "S3-compatible storage configured" : persistent_storage ? "Persistent disk writable" : "Not configured or not writable"
+      check.call("Upload storage", !Rails.env.production? || storage_ready, storage_detail, "high")
+      release = ENV.fetch("RAILWAY_GIT_COMMIT_SHA", ENV.fetch("RENDER_GIT_COMMIT", ""))
+      check.call("Release traceability", !Rails.env.production? || release.present?, release.present? ? release.first(12) : "Commit SHA unavailable", "high")
       check.call("Email delivery", !Rails.env.production? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?, ENV["RESEND_API_KEY"].present? ? "Resend configured" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "Webhook configured" : "Not configured", "medium")
       check.call("Razorpay", !Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), ENV["RAZORPAY_KEY_ID"].present? ? "Configured" : "Not configured", "medium")
       check.call("Duplicate user emails", User.group("lower(email)").having("COUNT(*) > 1").none?, "None", "high")
