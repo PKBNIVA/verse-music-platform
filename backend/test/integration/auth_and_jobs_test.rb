@@ -208,9 +208,17 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     payment_id = response.parsed_body.dig("payment", "id")
     assert_equal "mock", response.parsed_body.dig("checkout", "mode")
 
+    post "/api/bookings/#{booking_id}/payment-order", params: {}, headers: auth(buyer_token), as: :json
+    assert_response :success
+    assert_equal payment_id, response.parsed_body.dig("payment", "id")
+    assert_equal 1, BookingPayment.where(booking_request_id: booking_id, kind: "deposit", status: "created").count
+
     post "/api/booking-payments/#{payment_id}/confirm", params: {}, headers: auth(buyer_token), as: :json
     assert_response :success
     assert_equal "paid", BookingPayment.find(payment_id).status
+
+    post "/api/bookings/#{booking_id}/quote", params: { performanceFee: 70_000 }, headers: auth(artist_token), as: :json
+    assert_response :conflict
   end
 
   private

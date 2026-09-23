@@ -29,10 +29,20 @@ module Billing
       trial_days = trial_days_for(code)
       trial_ends_at = trial_days.positive? ? trial_days.days.from_now : nil
       gateway = RazorpayGateway.new
-      provider_sub = gateway.create_subscription(plan_id:, start_at: trial_ends_at&.to_i, notes: { user_id: current_user.id, plan_code: code })
-      previous_provider_ids = Subscription.where(user: current_user, status: %w[active trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).pluck(:provider_subscription_id)
-      previous_provider_ids.each { gateway.cancel_subscription(_1) }
-      sub = replace_subscription!(plan_code: code, provider: "razorpay", provider_subscription_id: provider_sub.fetch("id"), status: trial_days.positive? ? "trialing" : "pending", trial_started_at: trial_days.positive? ? Time.current : nil, trial_ends_at:)
+      current_user.with_lock do
+        existing = Subscription.where(user: current_user, plan_code: code, status: %w[trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).order(created_at: :desc).first
+        if existing
+          return render json: { subscription: existing, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: existing.provider_subscription_id } }
+        end
+        previous_provider_ids = Subscription.where(user: current_user, status: %w[active trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).pluck(:provider_subscription_id)
+        provider_sub = gateway.create_subscription(plan_id:, start_at: trial_ends_at&.to_i, notes: { user_id: current_user.id, plan_code: code })
+        sub = replace_subscription!(plan_code: code, provider: "razorpay", provider_subscription_id: provider_sub.fetch("id"), status: trial_days.positive? ? "trialing" : "pending", trial_started_at: trial_days.positive? ? Time.current : nil, trial_ends_at:)
+      end
+      previous_provider_ids.each do |provider_id|
+        gateway.cancel_subscription(provider_id)
+      rescue RazorpayGateway::GatewayError => cancellation_error
+        Rails.logger.error("razorpay previous subscription cancellation failed: #{cancellation_error.class} subscription=#{provider_id}")
+      end
       render json: { subscription: sub, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: provider_sub.fetch("id") } }
     rescue RazorpayGateway::GatewayError => error
       begin
@@ -85,8 +95,8 @@ module Billing
     end
 
     def process_booking_payment(payload)
-      return unless %w[payment.captured order.paid].include?(payload["event"])
-      entity = payload.dig("payload", "payment", "entity") || payload.dig("payload", "order", "entity") || {}
+      return unless payload["event"] == "payment.captured"
+      entity = payload.dig("payload", "payment", "entity") || {}
       notes = entity["notes"] || {}
       payment = BookingPayment.find_by(id: notes["payment_id"])
       provider_order_id = entity["order_id"] || entity["id"]
@@ -95,7 +105,10 @@ module Billing
       return payment if payment.status == "paid"
       return unless payment.provider_order_id.present? && provider_order_id.present?
       return unless ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id.to_s, provider_order_id.to_s)
-      payment.update!(status: "paid", provider_payment_id: payload.dig("payload", "payment", "entity", "id") || payment.provider_payment_id)
+      return unless entity["status"] == "captured"
+      return unless entity["amount"].to_i == payment.amount * 100
+      return unless entity["currency"].to_s.upcase == payment.currency
+      payment.update!(status: "paid", provider_payment_id: entity["id"] || payment.provider_payment_id)
       payment
     end
 

@@ -18,6 +18,7 @@ class BookingsController < ApplicationController
 
   def quote
     booking = owned_booking
+    return render_error("This booking can no longer be quoted.", :conflict) unless %w[requested viewed negotiating quoted].include?(booking.status)
     quote = booking.booking_quotes.create!(created_by: current_user, performance_fee: params[:performanceFee], travel_fee: params[:travelFee] || 0, production_fee: params[:productionFee] || 0, other_fee: params[:otherFee] || 0, currency: params[:currency].presence || booking.currency, deposit_percent: params[:depositPercent] || 50, valid_until: params[:validUntil], inclusions: params[:inclusions], exclusions: params[:exclusions], cancellation_terms: params[:cancellationTerms], status: "sent")
     booking.update!(status: "quoted")
     Notification.create!(user: booking.requester, kind: "booking_quote", title: "Booking quote received", body: "Quote received for #{booking.act.name}.", link: "/bookings")
@@ -26,8 +27,17 @@ class BookingsController < ApplicationController
 
   def change_status
     booking = BookingRequest.includes(:act).find(params[:id]); owner = booking.act.owner_id == current_user.id; requester = booking.requester_id == current_user.id
-    allowed = owner ? %w[viewed negotiating declined completed disputed] : %w[accepted negotiating cancelled disputed]
-    return render_error("Invalid booking status change.", :forbidden) unless (owner || requester) && allowed.include?(params[:status])
+    transitions = owner ? {
+      "requested" => %w[viewed negotiating declined], "viewed" => %w[negotiating declined],
+      "quoted" => %w[negotiating declined], "negotiating" => %w[declined],
+      "accepted" => %w[completed disputed]
+    } : {
+      "requested" => %w[negotiating cancelled], "viewed" => %w[negotiating cancelled],
+      "quoted" => %w[accepted negotiating cancelled], "negotiating" => %w[accepted cancelled],
+      "accepted" => %w[cancelled disputed]
+    }
+    allowed = (owner || requester) && transitions.fetch(booking.status, []).include?(params[:status])
+    return render_error("Invalid booking status change.", :conflict) unless allowed
     booking.update!(status: params[:status])
     render json: { ok: true }
   end
@@ -36,16 +46,17 @@ class BookingsController < ApplicationController
     booking = BookingRequest.includes(:booking_quotes).find(params[:id]); return render_error("Booking not found", :not_found) unless booking.requester_id == current_user.id && booking.status == "accepted"
     quote = booking.booking_quotes.where(status: %w[sent accepted]).order(created_at: :desc).first or return render_error("No active quote", :conflict)
     return render_error("This quote has expired.", :conflict) if quote.valid_until.present? && quote.valid_until <= Time.current
-    return render_error("Deposit is already paid.", :conflict) if booking.booking_payments.exists?(kind: "deposit", status: "paid")
-    existing = booking.booking_payments.where(kind: "deposit", status: "created").where.not(provider_order_id: nil).order(created_at: :desc).first
+    existing = booking.booking_payments.where(kind: "deposit", status: %w[created paid]).order(created_at: :desc).first
     if existing
+      return render_error("Deposit is already paid.", :conflict) if existing.status == "paid"
+      return render_error("Payment order is being prepared. Retry shortly.", :conflict) if existing.provider == "razorpay" && existing.provider_order_id.blank?
       checkout = existing.provider == "razorpay" ? { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], amount: existing.amount * 100, currency: existing.currency, orderId: existing.provider_order_id } : { mode: "mock" }
       return render json: { payment: existing, checkout: }
     end
     return render_error("Live payments are not configured.", :service_unavailable) if Rails.env.production? && ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET").any?(&:blank?)
     amount = (quote.total * quote.deposit_percent / 100.0).round
     return render_error("Deposit amount must be greater than zero.", :unprocessable_entity) unless amount.positive?
-    payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "internal", status: "created")
+    payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency.to_s.upcase, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "internal", status: "created")
     checkout = if payment.provider == "razorpay"
       order = RazorpayGateway.new.create_order(amount_paise: amount * 100, currency: quote.currency, receipt: "booking-#{payment.id}", notes: { booking_id: booking.id, payment_id: payment.id })
       payment.update!(provider_order_id: order.fetch("id"))
@@ -57,6 +68,8 @@ class BookingsController < ApplicationController
   rescue RazorpayGateway::GatewayError => error
     payment&.update!(status: "failed")
     render_error(error.message, :bad_gateway)
+  rescue ActiveRecord::RecordNotUnique
+    render_error("A payment order already exists. Retry shortly.", :conflict)
   end
 
   def confirm_payment
@@ -67,9 +80,20 @@ class BookingsController < ApplicationController
       return render_error("Payment order mismatch", :unprocessable_entity) unless payment.provider_order_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id, params[:orderId].to_s)
       expected = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_KEY_SECRET"), "#{payment.provider_order_id}|#{params[:paymentId]}")
       return render_error("Invalid payment signature", :unprocessable_entity) unless ActiveSupport::SecurityUtils.secure_compare(expected, params[:signature].to_s)
+      provider_payment = RazorpayGateway.new.payment(params[:paymentId])
+      valid_provider_payment = provider_payment["status"] == "captured" &&
+        provider_payment["order_id"].to_s == payment.provider_order_id &&
+        provider_payment["amount"].to_i == payment.amount * 100 &&
+        provider_payment["currency"].to_s.upcase == payment.currency
+      return render_error("Payment has not been captured for the expected amount.", :unprocessable_entity) unless valid_provider_payment
     end
-    payment.update!(status: "paid", provider_payment_id: params[:paymentId])
+    payment.with_lock do
+      return render_error("Payment is already confirmed.", :conflict) if payment.status == "paid"
+      payment.update!(status: "paid", provider_payment_id: params[:paymentId])
+    end
     render json: { ok: true }
+  rescue RazorpayGateway::GatewayError => error
+    render_error(error.message, :bad_gateway)
   end
 
   def payments
