@@ -303,7 +303,8 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal "inactive", Act.find(act_id).status
     patch "/api/acts/#{act_id}", params: { status: "active", tagline: "Back on stage" }, headers: auth(token), as: :json
     assert_response :success
-    assert_equal ["active", "Back on stage"], Act.find(act_id).values_at(:status, :tagline)
+    act = Act.find(act_id)
+    assert_equal ["active", "Back on stage"], [act.status, act.tagline]
   end
 
   test "employer dashboard exposes totals used by the workspace" do
@@ -357,12 +358,3 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :created
     response.parsed_body.fetch("accessToken")
   end
-
-  def login(email)
-    post "/api/auth/login", params: { email:, password: "StrongPass123!" }, as: :json
-    assert_response :success
-    response.parsed_body.fetch("accessToken")
-  end
-
-  def auth(token) = { "Authorization" => "Bearer #{token}" }
-end
