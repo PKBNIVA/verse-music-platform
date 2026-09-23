@@ -1,9 +1,11 @@
 class HealthController < ApplicationController
+  RELEASE = ENV.fetch("RAILWAY_GIT_COMMIT_SHA", ENV.fetch("RENDER_GIT_COMMIT", "unknown")).freeze
+
   def show
     ActiveRecord::Base.connection.select_value("SELECT 1")
-    render json: { ok: true, service: "verse-rails", time: Time.current.iso8601 }
+    render json: health_payload(true)
   rescue StandardError
-    render json: { ok: false, service: "verse-rails", time: Time.current.iso8601 }, status: :service_unavailable
+    render json: health_payload(false), status: :service_unavailable
   end
 
   def readiness
@@ -18,6 +20,12 @@ class HealthController < ApplicationController
       emailDelivery: { ok: !Rails.env.production? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?, required: ENV["REQUIRE_EMAIL_VERIFICATION"] == "true", provider: ENV["RESEND_API_KEY"].present? ? "resend" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "webhook" : "disabled" }
     }
     core_ready = checks.values.select { _1[:required] }.all? { _1[:ok] }
-    render json: { ok: core_ready, integrationsReady: checks.values.all? { _1[:ok] }, environment: Rails.env, checks: }, status: core_ready ? :ok : :service_unavailable
+    render json: health_payload(core_ready).merge(integrationsReady: checks.values.all? { _1[:ok] }, environment: Rails.env, checks:), status: core_ready ? :ok : :service_unavailable
+  end
+
+  private
+
+  def health_payload(ok)
+    { ok:, service: "verse-rails", release: RELEASE.first(12), time: Time.current.iso8601 }
   end
 end
