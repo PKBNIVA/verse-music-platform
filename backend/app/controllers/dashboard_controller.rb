@@ -10,7 +10,8 @@ class DashboardController < ApplicationController
         saved: current_user.saved_jobs.count, profileScore: (score_fields.count(&:present?) * 100 / score_fields.length), recommendedJobs: recommended }
     else
       scope = Application.joins(:job).where(jobs: { employer_id: current_user.id })
-      render json: { activeJobs: current_user.jobs.where(status: %w[pending published]).count, applications: scope.count,
+      render json: { jobs: current_user.jobs.count, published: current_user.jobs.where(status: "published").count,
+        activeJobs: current_user.jobs.where(status: %w[pending published]).count, applications: scope.count,
         shortlisted: scope.where(status: "Shortlisted").count, recentJobs: current_user.jobs.order(updated_at: :desc).limit(8).map { _1.api_json.merge(applications: _1.applications.count) } }
     end
   end
