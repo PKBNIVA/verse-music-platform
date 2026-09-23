@@ -1,13 +1,15 @@
 class UrgentRequestsController < ApplicationController
   before_action -> { authenticate!("jobseeker", "employer") }
   def index
-    scope = UrgentRequest.includes(:requester).where(status: "open").where("start_at >= ?", 1.day.ago).order(start_at: :asc)
+    visible = UrgentRequest.where(status: "open").where("start_at >= ?", 1.day.ago)
+      .or(UrgentRequest.where(requester: current_user))
+    scope = UrgentRequest.includes(:requester, :urgent_request_responses).where(id: visible.select(:id)).order(start_at: :asc)
     scope = scope.where("city ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:city])}%") if params[:city].present?
     if params[:role].present?
       role = "%#{ActiveRecord::Base.sanitize_sql_like(params[:role])}%"
       scope = scope.where("role_name ILIKE :role OR instrument ILIKE :role OR title ILIKE :role", role:)
     end
-    render json: { requests: scope.map { |item| item.attributes.merge(requesterName: item.requester.name, requesterVerified: item.requester.profile&.verified || false, myResponse: UrgentRequestResponse.exists?(urgent_request: item, user: current_user)) } }
+    render json: { requests: scope.map { |item| item.attributes.merge(requesterName: item.requester.name, requesterVerified: item.requester.profile&.verified || false, myResponse: UrgentRequestResponse.exists?(urgent_request: item, user: current_user), responseCount: item.urgent_request_responses.size) } }
   end
   def create
     item = UrgentRequest.create!(requester: current_user, title: params[:title], role_name: params[:roleName], instrument: params[:instrument], city: params[:city], start_at: params[:startAt], end_at: params[:endAt], budget_min: params[:budgetMin], budget_max: params[:budgetMax], currency: params[:currency].presence || "INR", genre: params[:genre], requirements: params[:requirements], travel_covered: params[:travelCovered] || false, status: "open")

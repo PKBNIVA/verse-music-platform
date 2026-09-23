@@ -116,6 +116,27 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal ["Jazz drummer needed"], response.parsed_body.fetch("requests").pluck("title")
   end
 
+  test "urgent request owner can inspect responses and close the request" do
+    owner_token = register("Urgent Owner", "urgent-owner@example.com", "employer")
+    responder_token = register("Urgent Responder", "urgent-responder@example.com", "jobseeker")
+    owner = User.find_by!(email: "urgent-owner@example.com")
+    request = UrgentRequest.create!(requester: owner, title: "Emergency drummer", role_name: "Drummer", city: "Mumbai", currency: "INR", status: "open", start_at: 2.days.from_now)
+
+    post "/api/urgent-requests/#{request.id}/respond", params: { message: "Available", rate: 5_000 }, headers: auth(responder_token), as: :json
+    assert_response :created
+    get "/api/urgent-requests/#{request.id}/responses", headers: auth(owner_token)
+    assert_response :success
+    assert_equal ["Urgent Responder"], response.parsed_body.fetch("responses").pluck("name")
+
+    patch "/api/urgent-requests/#{request.id}", params: { status: "filled" }, headers: auth(owner_token), as: :json
+    assert_response :success
+    get "/api/urgent-requests", headers: auth(owner_token)
+    assert_response :success
+    owned = response.parsed_body.fetch("requests").find { _1["id"] == request.id }
+    assert_equal "filled", owned.fetch("status")
+    assert_equal 1, owned.fetch("responseCount")
+  end
+
   test "employer directory never exposes contact details" do
     token = register("Directory Viewer", "viewer@example.com", "jobseeker")
     employer = User.create!(name: "Private Employer", email: "private-employer@example.com", password: "StrongPass123!", role: "employer", status: "active", profile_complete: true)
@@ -263,6 +284,27 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
 
     post "/api/bookings/#{booking_id}/quote", params: { performanceFee: 70_000 }, headers: auth(artist_token), as: :json
     assert_response :conflict
+  end
+
+  test "act owner can manage lineup and publishing status" do
+    token = register("Act Owner", "act-owner@example.com", "jobseeker")
+    post "/api/acts", params: { name: "Managed Act", actType: "band", city: "Mumbai", lineupSize: 2, leaderRole: "Band Leader" }, headers: auth(token), as: :json
+    assert_response :created
+    act_id = response.parsed_body.fetch("id")
+
+    post "/api/acts/#{act_id}/members", params: { displayName: "Guest Player", roleName: "Guitarist", instrument: "Guitar" }, headers: auth(token), as: :json
+    assert_response :created
+    member_id = response.parsed_body.fetch("id")
+    delete "/api/acts/#{act_id}/members/#{member_id}", headers: auth(token)
+    assert_response :success
+
+    delete "/api/acts/#{act_id}", headers: auth(token)
+    assert_response :success
+    assert_equal "inactive", Act.find(act_id).status
+    patch "/api/acts/#{act_id}", params: { status: "active", tagline: "Back on stage" }, headers: auth(token), as: :json
+    assert_response :success
+    act = Act.find(act_id)
+    assert_equal ["active", "Back on stage"], [act.status, act.tagline]
   end
 
   test "employer dashboard exposes totals used by the workspace" do

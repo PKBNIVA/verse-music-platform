@@ -32,6 +32,31 @@ class ActsController < ApplicationController
     render json: { id: member.id }, status: :created
   end
 
+  def update
+    return unless authenticate!("jobseeker", "employer")
+    act = current_user.owned_acts.find(params[:id])
+    act.update!(act_params)
+    audit!("act.update", act)
+    render json: { act: act.reload.api_json }
+  end
+
+  def destroy
+    return unless authenticate!("jobseeker", "employer")
+    act = current_user.owned_acts.find(params[:id])
+    act.update!(status: "inactive")
+    audit!("act.deactivate", act)
+    render json: { ok: true }
+  end
+
+  def remove_member
+    return unless authenticate!("jobseeker", "employer")
+    act = current_user.owned_acts.find(params[:id])
+    member = act.act_members.find(params[:member_id])
+    return render_error("The act leader cannot be removed.", :conflict) if member.is_leader?
+    member.destroy!
+    render json: { ok: true }
+  end
+
   private
 
   def filtered_scope
