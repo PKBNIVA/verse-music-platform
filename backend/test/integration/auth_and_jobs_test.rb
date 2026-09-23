@@ -18,6 +18,8 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     post "/api/auth/register", params: { name: "QA Candidate", email: "qa@example.com", password: "StrongPass123!", role: "jobseeker" }, as: :json
     assert_response :created
     assert_equal "qa@example.com", response.parsed_body.dig("user", "email")
+    assert response.parsed_body["verificationRequired"]
+    assert_equal 1, User.find_by!(email: "qa@example.com").email_tokens.where(purpose: "verify_email").count
     token = response.parsed_body.fetch("accessToken")
 
     get "/api/me"
@@ -36,6 +38,26 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     post "/api/auth/forgot-password", params: { email: "missing@example.com" }, as: :json
     assert_response :success
     assert_equal known_response, response.parsed_body
+  end
+
+  test "email verification rotates tokens and verifies only the latest link" do
+    token = register("Verify Me", "verify-me@example.com", "jobseeker")
+
+    post "/api/auth/request-email-verification", params: {}, headers: auth(token), as: :json
+    assert_response :success
+    first_link = response.parsed_body.fetch("debugLink")
+    first_token = Rack::Utils.parse_query(URI.parse(first_link).query).fetch("token")
+
+    post "/api/auth/request-email-verification", params: {}, headers: auth(token), as: :json
+    assert_response :success
+    second_link = response.parsed_body.fetch("debugLink")
+    second_token = Rack::Utils.parse_query(URI.parse(second_link).query).fetch("token")
+
+    post "/api/auth/verify-email", params: { token: first_token }, as: :json
+    assert_response :bad_request
+    post "/api/auth/verify-email", params: { token: second_token }, as: :json
+    assert_response :success
+    assert User.find_by!(email: "verify-me@example.com").email_verified?
   end
 
   test "taxonomy contains the music data required by creator workflows" do
