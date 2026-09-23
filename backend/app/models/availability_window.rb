@@ -1,7 +1,7 @@
 class AvailabilityWindow < ApplicationRecord
   belongs_to :user
   validates :start_at, :end_at, presence: true
-  validates :status, inclusion: { in: %w[available tentative unavailable] }
+  validates :status, inclusion: { in: %w[available hold tentative booked unavailable] }
   validate :ends_after_start
 
   private

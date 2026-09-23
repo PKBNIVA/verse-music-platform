@@ -27,7 +27,12 @@ class TalentController < ApplicationController
     return unless authenticate!("jobseeker", "employer")
     ids = params[:ids].to_s.split(",").uniq.first(4)
     return render_error("Choose at least two professionals to compare.", :bad_request) if ids.length < 2
-    professionals = public_scope.where(id: ids).map { |candidate| public_profile(candidate).merge(portfolio: candidate.portfolio_items.where(visibility: "public").limit(8).map(&:api_json), availability: AvailabilityWindow.where(user: candidate).where("end_at > ?", Time.current).limit(5)) }
+    professionals = public_scope.where(id: ids).map do |candidate|
+      availability = AvailabilityWindow.where(user: candidate, status: "available").where("end_at > ?", Time.current).order(:start_at).limit(5).map do |window|
+        { startAt: window.start_at, endAt: window.end_at, status: window.status, city: window.city }
+      end
+      public_profile(candidate).merge(portfolio: candidate.portfolio_items.where(visibility: "public").limit(8).map(&:api_json), availability:)
+    end
     render json: { professionals: }
   end
 
