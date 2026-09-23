@@ -30,6 +30,7 @@ test('a visitor can follow the primary discovery journey', async ({page}) => {
 
   await page.goBack({waitUntil: 'domcontentloaded'});
   const publicNavigation = page.locator('header a, footer a');
+  await expect(publicNavigation.first()).toBeVisible();
   const count = await publicNavigation.count();
   expect(count).toBeGreaterThanOrEqual(6);
   for (let index = 0; index < count; index += 1) {

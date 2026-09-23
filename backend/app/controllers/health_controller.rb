@@ -13,7 +13,7 @@ class HealthController < ApplicationController
       allowedOrigins: { ok: ENV["ALLOWED_ORIGINS"].present?, required: true },
       adminPassword: { ok: !Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14, required: true },
       demoData: { ok: !Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true", required: true },
-      storage: { ok: !Rails.env.production? || ENV["AWS_BUCKET"].present?, required: false, provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : "disabled" },
+      storage: { ok: !Rails.env.production? || ENV["AWS_BUCKET"].present? || ENV["PERSISTENT_UPLOADS"] == "true", required: false, provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : ENV["PERSISTENT_UPLOADS"] == "true" ? "persistent-disk" : "disabled" },
       payments: { ok: !Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), required: false, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled" },
       emailDelivery: { ok: !Rails.env.production? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?, required: ENV["REQUIRE_EMAIL_VERIFICATION"] == "true", provider: ENV["RESEND_API_KEY"].present? ? "resend" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "webhook" : "disabled" }
     }
