@@ -6,12 +6,12 @@ import { BrandMark } from '../components/BrandMark';
 
 const formats = [['Jobs', BriefcaseBusiness], ['Gigs', Zap], ['Auditions', Mic2], ['Sessions', Headphones], ['Tours', MapPin], ['Collaborations', Users]] as const;
 const roles = [
-  ['Artists & performers', Mic2, 'Live, studio and screen'],
-  ['Producers & engineers', AudioLines, 'Recording, mix and mastering'],
-  ['A&R & label teams', Star, 'Discovery and development'],
-  ['Managers & artist services', Users, 'Careers and operations'],
-  ['Live & touring crews', Radio, 'Stage, sound and production'],
-  ['Music-tech professionals', WandSparkles, 'Products powering music']
+  ['Artists & performers', Mic2, 'Live, studio and screen', 'performer'],
+  ['Producers & engineers', AudioLines, 'Recording, mix and mastering', 'engineer'],
+  ['A&R & label teams', Star, 'Discovery and development', 'A&R'],
+  ['Managers & artist services', Users, 'Careers and operations', 'manager'],
+  ['Live & touring crews', Radio, 'Stage, sound and production', 'live'],
+  ['Music-tech professionals', WandSparkles, 'Products powering music', 'music-tech']
 ] as const;
 
 export default function LandingPage() {
@@ -65,7 +65,7 @@ export default function LandingPage() {
         <div><div className="mb-3 flex items-center gap-2 text-xs font-bold uppercase tracking-[.22em] text-cyan-300"><BriefcaseBusiness size={15} /> For hiring teams</div><h2 className="text-4xl font-black tracking-tight md:text-5xl">Hire with signal, not inbox chaos.</h2><p className="mt-5 text-lg leading-8 text-slate-300">Create clearer briefs, find talent by real music signals and move candidates through one visible pipeline.</p><div className="mt-7 space-y-3"><Point text="Music-specific opportunity briefs" /><Point text="Searchable portfolios and credits" /><Point text="Shortlists, comparisons and hiring stages" /><Point text="Conversation history tied to the opportunity" /></div><Link to="/auth/employer"><Button className="mt-8 bg-cyan-400 text-slate-950 hover:bg-cyan-300">Start hiring <ArrowRight size={16} className="ml-2" /></Button></Link></div>
       </div></section>
 
-      <section className="mx-auto max-w-7xl px-5 py-24 md:px-6"><SectionIntro eyebrow="The whole industry" title="A network as varied as the music itself." body="Creative, commercial, technical and operational people all need a professional home." centered /><div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{roles.map(([label, Icon, sub]) => <Link key={label} to="/music-professionals" className="verse-card-lift verse-surface group flex items-center gap-4 rounded-2xl p-5"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500/25 to-cyan-400/10 text-violet-200"><Icon size={21} /></span><span><span className="block font-bold text-white">{label}</span><span className="mt-1 block text-sm text-slate-400">{sub}</span></span><ArrowRight size={17} className="ml-auto text-slate-500 group-hover:translate-x-1 group-hover:text-white" /></Link>)}</div></section>
+      <section className="mx-auto max-w-7xl px-5 py-24 md:px-6"><SectionIntro eyebrow="The whole industry" title="A network as varied as the music itself." body="Creative, commercial, technical and operational people all need a professional home." centered /><div className="mt-10 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">{roles.map(([label, Icon, sub, role]) => <Link key={label} to={`/music-professionals?role=${encodeURIComponent(role)}`} className="verse-card-lift verse-surface group flex items-center gap-4 rounded-2xl p-5"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-xl bg-gradient-to-br from-violet-500/25 to-cyan-400/10 text-violet-200"><Icon size={21} /></span><span><span className="block font-bold text-white">{label}</span><span className="mt-1 block text-sm text-slate-400">{sub}</span></span><ArrowRight size={17} className="ml-auto text-slate-500 group-hover:translate-x-1 group-hover:text-white" /></Link>)}</div></section>
 
       <section className="px-5 pb-24 md:px-6"><div className="relative mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-violet-300/25 bg-gradient-to-br from-fuchsia-500/20 via-violet-500/15 to-cyan-400/10 p-8 shadow-2xl shadow-violet-950/30 md:p-14"><div className="verse-grid absolute inset-0" /><div className="relative flex flex-col justify-between gap-8 lg:flex-row lg:items-center"><div><div className="mb-3 flex items-center gap-2 text-sm font-bold text-fuchsia-200"><Sparkles size={17} /> Your next chapter needs a first move</div><h2 className="max-w-2xl text-3xl font-black tracking-tight md:text-5xl">Come for the opportunity. Stay for the network.</h2></div><div className="flex shrink-0 flex-col gap-3 sm:flex-row"><Link to="/auth/jobseeker"><Button size="lg">Join as professional</Button></Link><Link to="/auth/employer"><Button size="lg" variant="outline" className="border-white/20 bg-white/[.05]">Join as employer</Button></Link></div></div></div></section>
     </main>
