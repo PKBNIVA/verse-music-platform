@@ -265,6 +265,50 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :conflict
   end
 
+  test "employer dashboard exposes totals used by the workspace" do
+    employer_token = register("Dashboard Employer", "dashboard-employer@example.com", "employer")
+    employer = User.find_by!(email: "dashboard-employer@example.com")
+    Job.create!(employer:, title: "Published Role", company: employer.name, location: "Mumbai", kind: "Contract", genre: "Pop", description: "A complete professional opportunity with written terms, production support and a clear working schedule.", status: "published")
+    Job.create!(employer:, title: "Draft Role", company: employer.name, location: "Delhi", kind: "Contract", genre: "Jazz", description: "A complete professional opportunity with written terms, production support and a clear working schedule.", status: "draft")
+
+    get "/api/dashboard", headers: auth(employer_token)
+
+    assert_response :success
+    assert_equal 2, response.parsed_body.fetch("jobs")
+    assert_equal 1, response.parsed_body.fetch("published")
+    assert_equal 1, response.parsed_body.fetch("activeJobs")
+  end
+
+  test "availability supports the statuses offered by the workspace" do
+    token = register("Calendar User", "calendar-user@example.com", "jobseeker")
+
+    %w[hold booked].each do |status|
+      post "/api/availability", params: { startAt: 2.days.from_now, endAt: 3.days.from_now, status:, city: "Mumbai" }, headers: auth(token), as: :json
+      assert_response :created
+    end
+  end
+
+  test "candidate comparison exposes only public available windows" do
+    employer_token = register("Comparison Employer", "comparison-employer@example.com", "employer")
+    first = User.create!(name: "Available Artist", email: "available-artist@example.com", password: "StrongPass123!", role: "jobseeker", status: "active", profile_complete: true)
+    first.create_profile!(headline: "Singer")
+    second = User.create!(name: "Second Artist", email: "second-artist@example.com", password: "StrongPass123!", role: "jobseeker", status: "active", profile_complete: true)
+    second.create_profile!(headline: "Guitarist")
+    AvailabilityWindow.create!(user: first, start_at: 2.days.from_now, end_at: 3.days.from_now, status: "available", city: "Mumbai", note: "Private schedule note")
+    AvailabilityWindow.create!(user: first, start_at: 4.days.from_now, end_at: 5.days.from_now, status: "unavailable", city: "Delhi", note: "Private reason")
+
+    get "/api/candidates/compare/list", params: { ids: [first.id, second.id].join(",") }, headers: auth(employer_token)
+
+    assert_response :success
+    available = response.parsed_body.fetch("professionals").find { _1["id"] == first.id }.fetch("availability")
+    assert_equal 1, available.length
+    assert_equal "available", available.first.fetch("status")
+    assert available.first.key?("startAt")
+    assert_not available.first.key?("start_at")
+    assert_not available.first.key?("user_id")
+    assert_not available.first.key?("note")
+  end
+
   private
 
   def register(name, email, role)
