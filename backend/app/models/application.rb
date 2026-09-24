@@ -14,6 +14,7 @@ class Application < ApplicationRecord
   attribute :screening_answers, :json, default: -> { [] }
   validates :candidate_id, uniqueness: { scope: :job_id }
   validates :status, inclusion: { in: STATUS_TRANSITIONS.keys }
+  validates :recruiter_rating, inclusion: { in: 1..5 }, allow_nil: true
   has_many :application_events, dependent: :destroy
 
   def can_transition_to?(next_status)
@@ -22,6 +23,7 @@ class Application < ApplicationRecord
 
   def api_json
     attributes.merge(jobId: job_id, coverLetter: cover_letter, interviewDate: interview_date,
+      recruiterRating: recruiter_rating, recruiterNote: recruiter_note,
       createdAt: created_at, updatedAt: updated_at, screeningAnswers: screening_answers,
       opportunityKind: job.opportunity_kind, workplace: job.workplace,
       title: job.title, company: job.company, location: job.location)
