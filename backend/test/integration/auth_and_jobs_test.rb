@@ -232,6 +232,9 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     body = response.parsed_body
     assert_equal true, body.dig("checks", "database", "ok")
     assert_equal true, body.dig("checks", "database", "required")
+    assert_equal "test", body.dig("checks", "backgroundJobs", "adapter")
+    assert_equal false, body.dig("checks", "backgroundJobs", "required")
+    assert_equal true, body.dig("checks", "backgroundJobs", "schemaReady")
     assert_equal false, body.dig("checks", "payments", "required")
     assert_equal true, body["optionalIntegrationsReady"]
   end

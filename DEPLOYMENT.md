@@ -18,6 +18,9 @@
 - Add PostgreSQL and expose its `DATABASE_URL` to the Rails service.
 - Configure the variables in `.env.example`; use the Railway-generated public domain for `API_HOST` and the Vercel domain for `FRONTEND_URL`, `FRONTEND_HOST`, and `ALLOWED_ORIGINS`.
 - The container runs `db:prepare` before Puma and Railway checks `/api/health`.
+- Durable jobs use GoodJob in the same PostgreSQL database. Set `GOOD_JOB_EXECUTION_MODE=async`, `GOOD_JOB_MAX_THREADS=2`, and `GOOD_JOB_ENABLE_CRON=true`; no Redis or second Railway service is required for the initial low-volume deployment.
+- Verify `/api/readiness` reports `backgroundJobs.ok=true`, `adapter=good_job`, and `schemaReady=true`. The 15-minute job-alert sweep creates deduplicated in-app notifications for daily and weekly alerts. Alerts with frequency `saved` are stored filters and are not delivered.
+- When queue volume grows, provision a worker from the same image with command `bundle exec good_job start`, change the web service to `GOOD_JOB_EXECUTION_MODE=external`, and leave cron enabled on exactly the worker service. This operational change does not require an application rewrite.
 
 Railway's current trial avoids an immediate charge. Keep resource limits at the free/trial defaults and set a usage limit before launch.
 
