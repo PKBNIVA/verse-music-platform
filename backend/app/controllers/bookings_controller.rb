@@ -45,7 +45,7 @@ class BookingsController < ApplicationController
     booking = BookingRequest.includes(:booking_quotes).find(params[:id])
     return render_error("Booking not found", :not_found) unless booking.requester_id == current_user.id
     return render_error("Live payments are not configured.", :service_unavailable) if Rails.env.production? && ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET").any?(&:blank?)
-    payment = existing = quote = nil
+    payment = existing = quote = attempt = nil
     payment_error = nil
     booking.with_lock do
       payment_error = ["Booking must be accepted before payment.", :conflict] unless booking.status == "accepted"
@@ -57,6 +57,9 @@ class BookingsController < ApplicationController
         amount = (quote.total * quote.deposit_percent / 100.0).round
         payment_error = ["Deposit amount must be greater than zero.", :unprocessable_entity] unless amount.positive?
         payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency.to_s.upcase, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "internal", status: "created") unless payment_error
+        if payment&.provider == "razorpay"
+          attempt = BillingAttempt.create!(user: current_user, operation: "booking_order_create", provider: "razorpay", idempotency_key: billing_idempotency_key("booking_order_create"), state: "pending", resource_type: "BookingPayment", resource_id: payment.id, request_payload: { booking_id: booking.id, amount: payment.amount * 100, currency: payment.currency }, last_attempted_at: Time.current)
+        end
       end
     end
     return render_error(*payment_error) if payment_error
@@ -67,16 +70,21 @@ class BookingsController < ApplicationController
       return render json: { payment: existing, checkout: }
     end
     checkout = if payment.provider == "razorpay"
-      order = RazorpayGateway.new.create_order(amount_paise: payment.amount * 100, currency: quote.currency, receipt: "booking-#{payment.id}", notes: { booking_id: booking.id, payment_id: payment.id })
-      payment.update!(provider_order_id: order.fetch("id"))
+      order = RazorpayGateway.new.create_order(amount_paise: payment.amount * 100, currency: quote.currency, receipt: "booking-#{payment.id}", notes: { booking_id: booking.id, payment_id: payment.id, attempt_id: attempt.id })
+      attempt.update!(provider_resource_id: order.fetch("id"), response_payload: order)
+      BookingPayment.transaction do
+        payment.update!(provider_order_id: order.fetch("id"))
+        attempt.succeed!(provider_resource_id: order.fetch("id"), response_payload: order)
+      end
       { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], amount: order.fetch("amount"), currency: order.fetch("currency"), orderId: order.fetch("id") }
     else
       { mode: "mock" }
     end
     render json: { payment:, checkout: }
   rescue RazorpayGateway::GatewayError => error
-    payment&.update!(status: "failed")
-    render_error(error.message, :bad_gateway)
+    attempt&.fail_from!(error)
+    payment&.update!(status: "failed") unless error.ambiguous?
+    render_error(error.ambiguous? ? "Payment provider outcome is pending reconciliation. Do not create another order." : error.message, :bad_gateway)
   rescue ActiveRecord::RecordNotUnique
     render_error("A payment order already exists. Retry shortly.", :conflict)
   end
@@ -111,6 +119,12 @@ class BookingsController < ApplicationController
   end
 
   private
+  def billing_idempotency_key(operation)
+    supplied = request.headers["Idempotency-Key"].to_s.strip
+    token = supplied.present? ? supplied.first(180) : SecureRandom.uuid
+    "#{current_user.id}:#{operation}:#{token}"
+  end
+
   def owned_booking = BookingRequest.joins(:act).where(acts: { owner_id: current_user.id }).find(params[:id])
   def booking_json(b)
     quote = b.booking_quotes.max_by(&:created_at)

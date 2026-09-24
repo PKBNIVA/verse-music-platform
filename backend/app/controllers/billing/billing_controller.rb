@@ -29,14 +29,29 @@ module Billing
       trial_days = trial_days_for(code)
       trial_ends_at = trial_days.positive? ? trial_days.days.from_now : nil
       gateway = RazorpayGateway.new
+      attempt = sub = provider_sub = nil
+      previous_provider_ids = []
+      previous_subscription_ids = []
       current_user.with_lock do
         existing = Subscription.where(user: current_user, plan_code: code, status: %w[trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).order(created_at: :desc).first
         if existing
           return render json: { subscription: existing, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: existing.provider_subscription_id } }
         end
-        previous_provider_ids = Subscription.where(user: current_user, status: %w[active trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).pluck(:provider_subscription_id)
-        provider_sub = gateway.create_subscription(plan_id:, start_at: trial_ends_at&.to_i, notes: { user_id: current_user.id, plan_code: code })
-        sub = replace_subscription!(plan_code: code, provider: "razorpay", provider_subscription_id: provider_sub.fetch("id"), status: trial_days.positive? ? "trialing" : "pending", trial_started_at: trial_days.positive? ? Time.current : nil, trial_ends_at:)
+        key = billing_idempotency_key("subscription_create")
+        prior_attempt = BillingAttempt.find_by(idempotency_key: key)
+        return render_attempt(prior_attempt) if prior_attempt
+        previous = Subscription.where(user: current_user, status: %w[active trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil)
+        previous_provider_ids = previous.pluck(:provider_subscription_id)
+        previous_subscription_ids = previous.pluck(:id)
+        sub = Subscription.create!(user: current_user, plan_code: code, provider: "razorpay", status: "pending", trial_started_at: nil, trial_ends_at:)
+        attempt = BillingAttempt.create!(user: current_user, operation: "subscription_create", provider: "razorpay", idempotency_key: key, state: "pending", resource_type: "Subscription", resource_id: sub.id, request_payload: { plan_id:, start_at: trial_ends_at&.to_i, plan_code: code }, last_attempted_at: Time.current)
+      end
+      provider_sub = gateway.create_subscription(plan_id:, start_at: trial_ends_at&.to_i, notes: { user_id: current_user.id, plan_code: code, attempt_id: attempt.id })
+      attempt.update!(provider_resource_id: provider_sub.fetch("id"), response_payload: provider_sub)
+      Subscription.transaction do
+        sub.update!(provider_subscription_id: provider_sub.fetch("id"))
+        attempt.succeed!(provider_resource_id: provider_sub.fetch("id"), response_payload: provider_sub)
+        Subscription.where(id: previous_subscription_ids).update_all(status: "cancelled", updated_at: Time.current)
       end
       previous_provider_ids.each do |provider_id|
         gateway.cancel_subscription(provider_id)
@@ -45,12 +60,14 @@ module Billing
       end
       render json: { subscription: sub, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: provider_sub.fetch("id") } }
     rescue RazorpayGateway::GatewayError => error
+      attempt&.fail_from!(error)
+      sub&.update!(status: "cancelled") unless error.ambiguous?
       begin
-        RazorpayGateway.new.cancel_subscription(provider_sub["id"]) if provider_sub&.key?("id")
+        RazorpayGateway.new.cancel_subscription(provider_sub["id"]) if provider_sub&.key?("id") && !error.ambiguous?
       rescue RazorpayGateway::GatewayError => cleanup_error
         Rails.logger.error("razorpay checkout cleanup failed: #{cleanup_error.class}")
       end
-      render_error(error.message, :bad_gateway)
+      render_error(error.ambiguous? ? "Billing provider outcome is pending reconciliation. Do not retry with a new request." : error.message, :bad_gateway)
     end
 
     def cancel
@@ -77,6 +94,7 @@ module Billing
       status = { "subscription.authenticated" => (sub&.trial_ends_at&.future? ? "trialing" : "pending"), "subscription.activated" => "active", "subscription.charged" => "active", "subscription.pending" => "pending", "subscription.halted" => "past_due", "subscription.cancelled" => "cancelled" }[payload["event"]]
       Subscription.transaction do
         subscription_result = sub&.apply_provider_status!(new_status: status, event_at:, event_id:) if status
+        sub&.update!(trial_started_at: event_at) if subscription_result == :applied && status == "trialing" && sub.trial_started_at.blank?
         payment, payment_result = process_booking_payment(payload, event_at:, event_id:)
         result = subscription_result || payment_result || (status ? :subscription_not_found : :ignored)
         BillingEvent.create!(provider: "razorpay", provider_event_id: event_id, user: sub&.user || payment&.payer, event_type: payload["event"], payload:, processing_result: result, processed_at: Time.current)
@@ -93,6 +111,20 @@ module Billing
     private
     def trial_days_for(code)
       Subscription.where(user: current_user).where.not(plan_code: "free").exists? ? 0 : PLANS[code][:trialDays]
+    end
+
+    def billing_idempotency_key(operation)
+      supplied = request.headers["Idempotency-Key"].to_s.strip
+      token = supplied.present? ? supplied.first(180) : SecureRandom.uuid
+      "#{current_user.id}:#{operation}:#{token}"
+    end
+
+    def render_attempt(attempt)
+      resource = attempt.resource_type.safe_constantize&.find_by(id: attempt.resource_id)
+      if attempt.state == "succeeded" && resource.is_a?(Subscription) && resource.provider_subscription_id.present?
+        return render json: { subscription: resource, checkout: { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], subscriptionId: resource.provider_subscription_id }, idempotent: true }
+      end
+      render_error(attempt.state == "ambiguous" ? "Billing provider outcome is pending reconciliation. Do not retry with a new request." : "Billing request is already being processed.", :conflict)
     end
 
     def replace_subscription!(**attributes)
@@ -124,7 +156,10 @@ module Billing
       Time.current
     end
 
-    def current_subscription = Subscription.where(user: current_user, status: %w[active trialing pending past_due]).order(created_at: :desc).first
+    def current_subscription
+      Subscription.where(user: current_user, status: %w[active trialing pending past_due])
+        .order(Arel.sql("CASE status WHEN 'active' THEN 0 WHEN 'trialing' THEN 1 WHEN 'past_due' THEN 2 ELSE 3 END"), created_at: :desc).first
+    end
     def effective_plan(sub) = sub && %w[active trialing].include?(sub.status) && (!sub.trial_ends_at || sub.trial_ends_at.future?) ? sub.plan_code : "free"
   end
 end

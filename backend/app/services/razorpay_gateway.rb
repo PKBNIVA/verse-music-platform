@@ -18,6 +18,14 @@ class RazorpayGateway
     post("subscriptions", payload)
   end
 
+  def subscription(subscription_id)
+    request(:get, "subscriptions/#{subscription_id}")
+  end
+
+  def order(order_id)
+    request(:get, "orders/#{order_id}")
+  end
+
   def cancel_subscription(subscription_id)
     post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: 1)
   end
@@ -37,16 +45,36 @@ class RazorpayGateway
       request.headers["Content-Type"] = "application/json"
       request.headers["Authorization"] = "Basic #{Base64.strict_encode64("#{@key_id}:#{@key_secret}")}" 
       request.body = JSON.generate(payload) if payload
-      request.options.timeout = 15
+      request.options.open_timeout = 3
+      request.options.timeout = 12
     end
     body = JSON.parse(response.body.presence || "{}")
     return body if response.success?
 
     message = body.dig("error", "description") || "Razorpay request failed (HTTP #{response.status})"
-    raise GatewayError, message
-  rescue Faraday::Error, JSON::ParserError => error
-    raise GatewayError, "Razorpay is temporarily unavailable: #{error.message}"
+    code = body.dig("error", "code") || "http_#{response.status}"
+    ambiguous = method == :post && (response.status >= 500 || [408, 429].include?(response.status))
+    raise GatewayError.new(message, code:, http_status: response.status, ambiguous:)
+  rescue Faraday::TimeoutError => error
+    raise GatewayError.new("Razorpay request timed out", code: "timeout", ambiguous: method == :post), cause: error
+  rescue Faraday::ConnectionFailed => error
+    raise GatewayError.new("Razorpay connection failed", code: "connection_failed", ambiguous: method == :post), cause: error
+  rescue Faraday::Error => error
+    raise GatewayError.new("Razorpay transport failed", code: "transport_error", ambiguous: method == :post), cause: error
+  rescue JSON::ParserError => error
+    raise GatewayError.new("Razorpay returned an invalid response", code: "invalid_response", ambiguous: method == :post), cause: error
   end
 
-  class GatewayError < StandardError; end
+  class GatewayError < StandardError
+    attr_reader :code, :http_status
+
+    def initialize(message, code: "gateway_error", http_status: nil, ambiguous: false)
+      super(message)
+      @code = code
+      @http_status = http_status
+      @ambiguous = ambiguous
+    end
+
+    def ambiguous? = @ambiguous
+  end
 end
