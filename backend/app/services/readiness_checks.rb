@@ -14,6 +14,7 @@ class ReadinessChecks
       allowedOrigins: check(ENV["ALLOWED_ORIGINS"].present?, required: true),
       adminPassword: check(!Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14, required: true),
       demoData: check(!Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true", required: true),
+      backgroundJobs: background_jobs_check,
       storage: check(!Rails.env.production? || ENV["AWS_BUCKET"].present? || ENV["PERSISTENT_UPLOADS"] == "true", required: false,
         provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : ENV["PERSISTENT_UPLOADS"] == "true" ? "persistent-disk" : "disabled"),
       payments: check(!Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), required: false,
@@ -33,6 +34,15 @@ class ReadinessChecks
   end
 
   private
+
+  def background_jobs_check
+    adapter = ActiveJob::Base.queue_adapter_name
+    schema_ready = @connection_provider.call.data_source_exists?("good_jobs")
+    check(!Rails.env.production? || (adapter == "good_job" && schema_ready), required: Rails.env.production?, adapter:, schemaReady: schema_ready,
+      executionMode: ENV.fetch("GOOD_JOB_EXECUTION_MODE", Rails.env.production? ? "async" : "external"))
+  rescue StandardError
+    check(false, required: Rails.env.production?, adapter: adapter || "unknown", schemaReady: false)
+  end
 
   def database_check
     connection = @connection_provider.call

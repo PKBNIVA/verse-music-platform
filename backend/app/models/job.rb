@@ -2,6 +2,7 @@ class Job < ApplicationRecord
   belongs_to :employer, class_name: "User"
   has_many :applications, dependent: :destroy
   has_many :saved_jobs, dependent: :destroy
+  has_many :job_alert_deliveries, dependent: :destroy
 
   attribute :skills, :json, default: -> { [] }
   attribute :languages, :json, default: -> { [] }
