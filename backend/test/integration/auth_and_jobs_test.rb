@@ -384,6 +384,34 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal "Hired", application.reload.status
   end
 
+  test "employers can annotate applications without changing status and receive legal next actions" do
+    employer = User.create!(name: "Contract Employer", email: "contract-employer@example.com", password: "StrongPass123!", role: "employer", status: "active")
+    candidate = User.create!(name: "Experienced Candidate", email: "experienced-candidate@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    candidate.create_profile!(headline: "Touring vocalist", experience: "8 years of touring and studio work", location: "Mumbai", skills: ["Vocals"])
+    job = Job.create!(employer:, title: "Lead Vocalist", company: "Contract Employer", location: "Mumbai", kind: "Contract", genre: "Live", description: "A professional lead vocalist role with rehearsals, written terms and an experienced production team.", status: "published")
+    application = Application.create!(job:, candidate:, status: "Applied")
+    token = login(employer.email)
+
+    get "/api/employer/applications", headers: auth(token)
+    assert_response :success
+    row = response.parsed_body.fetch("applications").first
+    assert_equal "8 years of touring and studio work", row.fetch("experience")
+    assert_equal ["Under Review", "Shortlisted", "Rejected"], row.fetch("allowedNextStatuses")
+
+    notification_count = Notification.where(user: candidate, kind: "application_status").count
+    patch "/api/employer/applications/#{application.id}", params: { recruiterNote: "Strong live reel", recruiterRating: 5 }, headers: auth(token), as: :json
+    assert_response :success
+    assert_equal "Applied", application.reload.status
+    assert_equal "Strong live reel", application.recruiter_note
+    assert_equal 5, application.recruiter_rating
+    assert_equal "recruiter_annotation", application.application_events.order(:created_at).last.event_type
+    assert_equal notification_count, Notification.where(user: candidate, kind: "application_status").count
+
+    patch "/api/employer/applications/#{application.id}", params: { recruiterRating: 6 }, headers: auth(token), as: :json
+    assert_response :unprocessable_entity
+    assert_equal 5, application.reload.recruiter_rating
+  end
+
   test "draft acts are owner-only and public act data excludes private fields" do
     owner = User.create!(name: "Private Act Owner", email: "private-act-owner@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
     owner.create_profile!
