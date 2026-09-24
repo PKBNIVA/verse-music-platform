@@ -1,0 +1,17 @@
+import {useEffect,useState} from 'react';
+import {Bell,Pause,Play,Trash2} from 'lucide-react';
+import {Navigation} from '../components/Navigation';
+import {apiDelete,apiGet,apiPatch} from '../lib/api';
+import {Card,CardContent} from '../components/ui/card';
+import {Button} from '../components/ui/button';
+import {Badge} from '../components/ui/badge';
+import {toast} from 'sonner';
+
+export default function JobAlerts(){
+  const[alerts,setAlerts]=useState<any[]>([]),[loading,setLoading]=useState(true),[error,setError]=useState('');
+  const load=()=>{setLoading(true);setError('');apiGet<any>('/job-alerts').then(d=>setAlerts(d.alerts||[])).catch((e:any)=>setError(e.message)).finally(()=>setLoading(false))};
+  useEffect(load,[]);
+  async function update(alert:any,changes:any){try{await apiPatch(`/job-alerts/${alert.id}`,changes);toast.success('Alert updated');load()}catch(e:any){toast.error(e.message)}}
+  async function remove(alert:any){if(!window.confirm(`Delete “${alert.name}”?`))return;try{await apiDelete(`/job-alerts/${alert.id}`);toast.success('Alert deleted');load()}catch(e:any){toast.error(e.message)}}
+  return <div className="min-h-screen bg-slate-950 text-white"><Navigation/><main className="max-w-4xl mx-auto px-5 pt-28 pb-24"><div className="flex items-start gap-3"><Bell className="text-violet-300 mt-1"/><div><h1 className="text-4xl font-bold">Job alerts</h1><p className="text-slate-400 mt-2">Control saved searches and how often Verse should notify you.</p></div></div>{loading&&<p className="mt-8 text-slate-400">Loading alerts…</p>}{error&&<Card className="mt-8 bg-rose-500/10 border-rose-400/20"><CardContent className="p-5"><p>{error}</p><Button className="mt-3" variant="outline" onClick={load}>Retry</Button></CardContent></Card>}{!loading&&!error&&alerts.length===0&&<Card className="mt-8 bg-white/[.04] border-white/10"><CardContent className="p-7 text-center"><Bell className="mx-auto text-slate-500"/><h2 className="font-semibold mt-3">No job alerts yet</h2><p className="text-sm text-slate-400 mt-1">Save a search from Explore work to create one.</p></CardContent></Card>}<div className="space-y-4 mt-8">{alerts.map(a=><Card key={a.id} className="bg-white/[.055] border-white/10"><CardContent className="p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4"><div><div className="flex items-center gap-2"><h2 className="font-semibold text-lg">{a.name}</h2><Badge variant={a.active?'default':'secondary'}>{a.active?'Active':'Paused'}</Badge></div><p className="text-sm text-slate-400 mt-2">{[a.query,a.location,a.opportunity_kind,a.function_area,a.remote_only?'Remote only':null].filter(Boolean).join(' · ')||'All matching opportunities'}</p><label className="block text-xs text-slate-500 mt-3">Delivery <select aria-label={`Delivery frequency for ${a.name}`} className="ml-2 rounded-md bg-slate-900 border border-white/10 px-2 py-1 text-slate-200" value={a.frequency||'weekly'} onChange={e=>update(a,{frequency:e.target.value})}><option value="daily">Daily</option><option value="weekly">Weekly</option><option value="saved">Saved only</option></select></label></div><div className="flex gap-2"><Button size="sm" variant="outline" onClick={()=>update(a,{active:!a.active})}>{a.active?<Pause size={15} className="mr-1"/>:<Play size={15} className="mr-1"/>}{a.active?'Pause':'Resume'}</Button><Button size="sm" variant="outline" className="text-rose-300" onClick={()=>remove(a)}><Trash2 size={15} className="mr-1"/>Delete</Button></div></CardContent></Card>)}</div></main></div>;
+}

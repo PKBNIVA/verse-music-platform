@@ -268,7 +268,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :created
     booking_id = response.parsed_body.fetch("id")
 
-    post "/api/bookings/#{booking_id}/quote", params: { performanceFee: 60_000, depositPercent: 50 }, headers: auth(artist_token), as: :json
+    post "/api/bookings/#{booking_id}/quote", params: { performanceFee: 60_000, travelFee: 5_000, productionFee: 3_000, otherFee: 2_000, currency: "INR", depositPercent: 50, validUntil: 1.month.from_now, inclusions: "Performance and backline", exclusions: "Travel permits", cancellationTerms: "Deposit is non-refundable within seven days" }, headers: auth(artist_token), as: :json
     assert_response :created
     post "/api/bookings/#{booking_id}/status", params: { status: "accepted" }, headers: auth(buyer_token), as: :json
     assert_response :success
@@ -286,8 +286,38 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "paid", BookingPayment.find(payment_id).status
 
+    get "/api/bookings/#{booking_id}/payments", headers: auth(artist_token)
+    assert_response :success
+    assert_equal [payment_id], response.parsed_body.fetch("payments").map { _1.fetch("id") }
+    get "/api/bookings", headers: auth(buyer_token)
+    quote = response.parsed_body.fetch("bookings").first.fetch("latestQuote")
+    assert_equal 70_000, quote.fetch("total")
+    assert_equal "Performance and backline", quote.fetch("inclusions")
+    assert_equal "Travel permits", quote.fetch("exclusions")
+    assert_equal "Deposit is non-refundable within seven days", quote.fetch("cancellationTerms")
+    assert_equal 1, response.parsed_body.fetch("bookings").first.fetch("paymentCount")
+
     post "/api/bookings/#{booking_id}/quote", params: { performanceFee: 70_000 }, headers: auth(artist_token), as: :json
     assert_response :conflict
+  end
+
+  test "job alert owner can list update pause and delete alerts" do
+    candidate = User.create!(name: "Alert Candidate", email: "alerts@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    token = session_for(candidate)
+    post "/api/job-alerts", params: { name: "Tour work", query: "tour", location: "Mumbai", frequency: "weekly" }, headers: auth(token), as: :json
+    assert_response :created
+    alert_id = response.parsed_body.fetch("id")
+
+    patch "/api/job-alerts/#{alert_id}", params: { frequency: "daily", active: false }, headers: auth(token), as: :json
+    assert_response :success
+    assert_equal "daily", response.parsed_body.dig("alert", "frequency")
+    assert_equal false, response.parsed_body.dig("alert", "active")
+    get "/api/job-alerts", headers: auth(token)
+    assert_response :success
+    assert_equal [alert_id], response.parsed_body.fetch("alerts").map { _1.fetch("id") }
+    delete "/api/job-alerts/#{alert_id}", headers: auth(token)
+    assert_response :success
+    assert_not JobAlert.exists?(alert_id)
   end
 
   test "act owner can manage lineup and publishing status" do

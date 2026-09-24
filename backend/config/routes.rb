@@ -19,7 +19,7 @@ Rails.application.routes.draw do
     post "saved-jobs/:id", to: "jobs#save"
     delete "saved-jobs/:id", to: "jobs#unsave"
     resources :applications, only: %i[index destroy]
-    resources :job_alerts, path: "job-alerts", only: %i[index create destroy]
+    resources :job_alerts, path: "job-alerts", only: %i[index create update destroy]
 
     namespace :employer do
       resources :jobs, only: :update
