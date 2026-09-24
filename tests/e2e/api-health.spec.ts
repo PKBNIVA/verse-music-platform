@@ -23,12 +23,13 @@ test.describe('live API health and latency', () => {
     expect(p95, `Warm health timings: ${timings.join(', ')}ms`).toBeLessThanOrEqual(latencyBudgetMs);
   });
 
-  test('readiness reports database and deployment configuration without leaking secrets', async ({request}) => {
+  test('public readiness reports status without exposing deployment configuration', async ({request}) => {
     const response = await request.get(`${apiBase}/readiness`);
     expect([200, 503]).toContain(response.status());
     const body = await response.json();
-    expect(body.environment).toBe('production');
-    expect(body.checks?.database).toMatchObject({ok: true, engine: 'postgresql'});
-    expect(JSON.stringify(body)).not.toMatch(/secret|password|access[_-]?key/i);
+    expect(body).toMatchObject({service: 'verse-rails'});
+    expect(body).not.toHaveProperty('environment');
+    expect(body).not.toHaveProperty('checks');
+    expect(JSON.stringify(body)).not.toMatch(/secret|password|access[_-]?key|provider/i);
   });
 });

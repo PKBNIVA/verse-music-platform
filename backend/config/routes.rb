@@ -1,6 +1,7 @@
 Rails.application.routes.draw do
   scope :api do
     get "health", to: "health#show"
+    get "live", to: "health#show"
     get "readiness", to: "health#readiness"
     post "auth/register", to: "auth#register"
     post "auth/login", to: "auth#login"
@@ -26,6 +27,7 @@ Rails.application.routes.draw do
       resources :applications, only: %i[index update]
     end
     namespace :admin do
+      get :health, to: "health#show"
       get :stats, to: "stats#index"
       get :tester, to: "tester#index"
       resources :users, only: %i[index update] do

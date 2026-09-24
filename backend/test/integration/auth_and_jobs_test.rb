@@ -192,24 +192,48 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert candidate_token.present?
   end
 
-  test "health reports postgres-backed service" do
-    get "/api/health"
+  test "liveness reports the running process without dependency diagnostics" do
+    get "/api/live"
     assert_response :success
+    assert_equal true, response.parsed_body["ok"]
     assert_equal "verse-rails", response.parsed_body["service"]
     assert response.parsed_body["release"].present?
     assert response.parsed_body["time"].present?
+    assert_not response.parsed_body.key?("checks")
+
+    get "/api/health"
+    assert_response :success
+    assert_equal "verse-rails", response.parsed_body["service"]
   end
 
-  test "readiness describes required and optional production dependencies" do
+  test "public readiness is minimal and does not expose deployment configuration" do
     get "/api/readiness"
 
     assert_response :service_unavailable
     body = response.parsed_body
     assert_equal false, body["ok"]
     assert_equal "verse-rails", body["service"]
+    assert_not body.key?("checks")
+    assert_not body.key?("environment")
+    assert_not body.key?("integrationsReady")
+  end
+
+  test "detailed readiness diagnostics require an administrator" do
+    get "/api/admin/health"
+    assert_response :unauthorized
+
+    user = User.create!(name: "Health Viewer", email: "health-viewer@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    get "/api/admin/health", headers: auth(session_for(user))
+    assert_response :forbidden
+
+    admin = User.create!(name: "Health Admin", email: "health-admin@example.com", password: "StrongPass123!", role: "admin", status: "active")
+    get "/api/admin/health", headers: auth(session_for(admin))
+    assert_response :service_unavailable
+    body = response.parsed_body
+    assert_equal true, body.dig("checks", "database", "ok")
     assert_equal true, body.dig("checks", "database", "required")
     assert_equal false, body.dig("checks", "payments", "required")
-    assert_includes %w[disabled razorpay], body.dig("checks", "payments", "provider")
+    assert_equal true, body["optionalIntegrationsReady"]
   end
 
   test "user supplied links reject unsafe URL schemes" do
