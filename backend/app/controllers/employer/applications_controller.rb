@@ -17,8 +17,8 @@ module Employer
     def update
       return unless authenticate!("jobseeker", "employer")
       application = Application.joins(:job).where(jobs: { employer_id: current_user.id }).find(params[:id])
-      allowed = ["Applied", "Under Review", "Shortlisted", "Interview Scheduled", "Offer", "Rejected", "Hired"]
-      return render_error("Invalid application status.", :bad_request) unless allowed.include?(params[:status])
+      return render_error("Invalid application status.", :bad_request) unless Application::STATUS_TRANSITIONS.key?(params[:status])
+      return render_error("Invalid application status change.", :conflict) unless application.can_transition_to?(params[:status])
       from = application.status
       application.update!(status: params[:status], interview_date: params[:interviewDate], recruiter_rating: params[:recruiterRating] || application.recruiter_rating, recruiter_note: params[:recruiterNote] || application.recruiter_note)
       application.application_events.create!(actor: current_user, event_type: "status_changed", from_status: from, to_status: application.status, note: params[:note])
