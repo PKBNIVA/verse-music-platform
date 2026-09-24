@@ -39,6 +39,8 @@ Rails.application.routes.draw do
       resources :reports, only: %i[index update]
       get :audit, to: "operations#audit"
       get :subscriptions, to: "operations#subscriptions"
+      get "billing-attempts", to: "operations#billing_attempts"
+      post "billing-attempts/:id/reconcile", to: "operations#reconcile_billing_attempt"
       get :bookings, to: "operations#bookings"
       post "search/reindex", to: "search#reindex"
     end

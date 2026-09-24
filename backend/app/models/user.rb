@@ -14,6 +14,8 @@ class User < ApplicationRecord
   has_many :organizations, foreign_key: :owner_id, dependent: :destroy
   has_many :band_projects, foreign_key: :owner_id, dependent: :destroy
   has_many :crew_plans, foreign_key: :owner_id, dependent: :destroy
+  has_many :subscriptions, dependent: :destroy
+  has_many :billing_attempts, dependent: :destroy
 
   enum :role, { jobseeker: "jobseeker", employer: "employer", admin: "admin" }, validate: true
   enum :status, { active: "active", suspended: "suspended", pending: "pending" }, validate: true
