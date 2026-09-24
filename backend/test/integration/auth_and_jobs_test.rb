@@ -246,6 +246,10 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     employer = User.find_by!(email: "studio@example.com")
     post "/api/reviews", params: { employerId: employer.id, rating: 5, body: "A professional engagement." }, headers: auth(candidate_token), as: :json
     assert_response :forbidden
+    patch "/api/employer/applications/#{application_id}", params: { status: "Interview Scheduled", interviewDate: 2.days.from_now }, headers: auth(employer_token), as: :json
+    assert_response :success
+    patch "/api/employer/applications/#{application_id}", params: { status: "Offer" }, headers: auth(employer_token), as: :json
+    assert_response :success
     patch "/api/employer/applications/#{application_id}", params: { status: "Hired" }, headers: auth(employer_token), as: :json
     assert_response :success
     post "/api/reviews", params: { employerId: employer.id, rating: 5, body: "A professional engagement." }, headers: auth(candidate_token), as: :json
@@ -354,7 +358,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   test "application pipeline rejects backward and terminal status changes" do
     employer = User.create!(name: "Pipeline Employer", email: "pipeline-employer@example.com", password: "StrongPass123!", role: "employer", status: "active")
     candidate = User.create!(name: "Pipeline Candidate", email: "pipeline-candidate@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
-    job = Job.create!(employer:, title: "Touring Singer", company: "Pipeline Employer", location: "Mumbai", kind: "Contract", description: "A professional touring role with rehearsals, written terms and an experienced live production team.", status: "published")
+    job = Job.create!(employer:, title: "Touring Singer", company: "Pipeline Employer", location: "Mumbai", kind: "Contract", genre: "Live", description: "A professional touring role with rehearsals, written terms and an experienced live production team.", status: "published")
     application = Application.create!(job:, candidate:, status: "Applied")
     token = login(employer.email)
 
