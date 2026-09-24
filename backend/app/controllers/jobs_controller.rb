@@ -1,17 +1,25 @@
 class JobsController < ApplicationController
   def index
-    jobs = Job.published.includes(:employer).order(featured: :desc, created_at: :desc)
+    jobs = Job.published.includes(:applications, employer: :profile).order(featured: :desc, created_at: :desc)
     query = params[:q].to_s.strip
-    jobs = jobs.where("jobs.title ILIKE :q OR jobs.company ILIKE :q OR jobs.description ILIKE :q", q: "%#{ActiveRecord::Base.sanitize_sql_like(query)}%") if query.present?
-    jobs = jobs.where("location ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:location])}%") if params[:location].present?
+    if query.present?
+      q = "%#{ActiveRecord::Base.sanitize_sql_like(query)}%"
+      jobs = jobs.where(<<~SQL.squish, q:)
+        jobs.title ILIKE :q OR jobs.company ILIKE :q OR jobs.description ILIKE :q OR
+        jobs.requirements ILIKE :q OR jobs.genre ILIKE :q OR jobs.function_area ILIKE :q OR
+        jobs.opportunity_kind ILIKE :q OR jobs.skills::text ILIKE :q
+      SQL
+    end
+    jobs = jobs.where("jobs.location ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:location])}%") if params[:location].present?
     { kind: :opportunity_kind, function: :function_area, workplace: :workplace, experience: :experience_level }.each { |key, column| jobs = jobs.where(column => params[key]) if params[key].present? }
     jobs = jobs.where(paid: true) if params[:paid] == "true"
+    jobs = jobs.joins(employer: :profile).where(profiles: { verified: true }) if params[:verified] == "true"
     saved = current_user&.jobseeker? ? SavedJob.where(user: current_user).pluck(:job_id).to_set : Set.new
     render json: { jobs: jobs.limit(250).map { |job| job.api_json.merge(saved: saved.include?(job.id)) } }
   end
 
   def show
-    job = Job.includes(:employer).find(params[:id])
+    job = Job.includes(:applications, employer: :profile).find(params[:id])
     unless job.published? || current_user&.admin? || current_user&.id == job.employer_id
       return render_error("Opportunity not found", :not_found)
     end
@@ -49,7 +57,7 @@ class JobsController < ApplicationController
 
   def saved
     return unless authenticate!("jobseeker")
-    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).includes(:employer).order("saved_jobs.created_at DESC").map(&:api_json) }
+    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).includes(:applications, employer: :profile).order("saved_jobs.created_at DESC").map(&:api_json) }
   end
 
   def save

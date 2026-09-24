@@ -18,6 +18,7 @@ class Job < ApplicationRecord
       "screeningQuestions" => screening_questions,
       "employerName" => employer.name,
       "employerVerified" => employer.profile&.verified || false,
+      "applicationsCount" => applications.size,
       "createdAt" => created_at,
       "updatedAt" => updated_at
     )
