@@ -209,7 +209,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_match(/HTTP or HTTPS URL/, response.parsed_body.fetch("error"))
 
     post "/api/verification-requests", params: {
-      kind: "identity",
+      kind: "professional",
       evidenceUrl: "data:text/html,<script>alert(1)</script>"
     }, headers: auth(token), as: :json
 
