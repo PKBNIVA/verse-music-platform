@@ -351,6 +351,30 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_not available.first.key?("note")
   end
 
+  test "application pipeline rejects backward and terminal status changes" do
+    employer = User.create!(name: "Pipeline Employer", email: "pipeline-employer@example.com", password: "StrongPass123!", role: "employer", status: "active")
+    candidate = User.create!(name: "Pipeline Candidate", email: "pipeline-candidate@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    job = Job.create!(employer:, title: "Touring Singer", company: "Pipeline Employer", location: "Mumbai", kind: "Contract", description: "A professional touring role with rehearsals, written terms and an experienced live production team.", status: "published")
+    application = Application.create!(job:, candidate:, status: "Applied")
+    token = login(employer.email)
+
+    patch "/api/employer/applications/#{application.id}", params: { status: "Shortlisted" }, headers: auth(token), as: :json
+    assert_response :success
+
+    patch "/api/employer/applications/#{application.id}", params: { status: "Under Review" }, headers: auth(token), as: :json
+    assert_response :conflict
+    assert_equal "Shortlisted", application.reload.status
+
+    patch "/api/employer/applications/#{application.id}", params: { status: "Offer" }, headers: auth(token), as: :json
+    assert_response :success
+    patch "/api/employer/applications/#{application.id}", params: { status: "Hired" }, headers: auth(token), as: :json
+    assert_response :success
+
+    patch "/api/employer/applications/#{application.id}", params: { status: "Rejected" }, headers: auth(token), as: :json
+    assert_response :conflict
+    assert_equal "Hired", application.reload.status
+  end
+
   private
 
   def register(name, email, role)
