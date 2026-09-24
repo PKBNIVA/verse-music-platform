@@ -302,7 +302,8 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   end
 
   test "job alert owner can list update pause and delete alerts" do
-    token = register("Alert Candidate", "alerts@example.com", "jobseeker")
+    candidate = User.create!(name: "Alert Candidate", email: "alerts@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    token = session_for(candidate)
     post "/api/job-alerts", params: { name: "Tour work", query: "tour", location: "Mumbai", frequency: "weekly" }, headers: auth(token), as: :json
     assert_response :created
     alert_id = response.parsed_body.fetch("id")
