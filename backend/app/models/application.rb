@@ -1,7 +1,7 @@
 class Application < ApplicationRecord
   STATUS_TRANSITIONS = {
-    "Applied" => ["Under Review", "Shortlisted", "Interview Scheduled", "Offer", "Rejected"],
-    "Under Review" => ["Shortlisted", "Interview Scheduled", "Offer", "Rejected"],
+    "Applied" => ["Under Review", "Shortlisted", "Rejected"],
+    "Under Review" => ["Shortlisted", "Interview Scheduled", "Rejected"],
     "Shortlisted" => ["Interview Scheduled", "Offer", "Rejected"],
     "Interview Scheduled" => ["Offer", "Rejected"],
     "Offer" => ["Hired", "Rejected"],
@@ -13,10 +13,11 @@ class Application < ApplicationRecord
   belongs_to :candidate, class_name: "User"
   attribute :screening_answers, :json, default: -> { [] }
   validates :candidate_id, uniqueness: { scope: :job_id }
+  validates :status, inclusion: { in: STATUS_TRANSITIONS.keys }
   has_many :application_events, dependent: :destroy
 
   def can_transition_to?(next_status)
-    next_status == status || STATUS_TRANSITIONS.fetch(status, []).include?(next_status)
+    STATUS_TRANSITIONS.fetch(status, []).include?(next_status)
   end
 
   def api_json
