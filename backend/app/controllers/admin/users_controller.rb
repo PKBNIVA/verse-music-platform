@@ -1,6 +1,6 @@
 module Admin
   class UsersController < BaseController
-    def index = render(json: { users: User.includes(:profile).order(created_at: :desc).limit(500).map { public_user(_1) } })
+    def index = render(json: { users: User.includes(:profile).order(created_at: :desc).limit(500).map { public_user(_1).merge("createdAt" => _1.created_at) } })
 
     def update
       return render_error("You cannot change your own admin status.", :conflict) if params[:id] == current_user.id
