@@ -65,20 +65,28 @@ module Billing
 
     def razorpay_webhook
       raw = request.raw_post
-      expected = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_WEBHOOK_SECRET"), raw)
+      secret = ENV["RAZORPAY_WEBHOOK_SECRET"].presence
+      return render_error("Billing webhook is not configured", :service_unavailable) unless secret
+      expected = OpenSSL::HMAC.hexdigest("SHA256", secret, raw)
       return render_error("Invalid webhook signature", :unauthorized) unless ActiveSupport::SecurityUtils.secure_compare(expected, request.headers["X-Razorpay-Signature"].to_s)
       payload = JSON.parse(raw); event_id = request.headers["X-Razorpay-Event-Id"].presence || Digest::SHA256.hexdigest(raw)
       return render json: { ok: true, duplicate: true } if BillingEvent.exists?(provider: "razorpay", provider_event_id: event_id)
+      event_at = provider_event_time(payload)
       provider_id = payload.dig("payload", "subscription", "entity", "id")
       sub = Subscription.find_by(provider_subscription_id: provider_id)
       status = { "subscription.authenticated" => (sub&.trial_ends_at&.future? ? "trialing" : "pending"), "subscription.activated" => "active", "subscription.charged" => "active", "subscription.pending" => "pending", "subscription.halted" => "past_due", "subscription.cancelled" => "cancelled" }[payload["event"]]
       Subscription.transaction do
-        sub&.update!(status:) if status
-        payment = process_booking_payment(payload)
-        BillingEvent.create!(provider: "razorpay", provider_event_id: event_id, user: sub&.user || payment&.payer, event_type: payload["event"], payload:, processed_at: Time.current)
+        subscription_result = sub&.apply_provider_status!(new_status: status, event_at:, event_id:) if status
+        payment, payment_result = process_booking_payment(payload, event_at:, event_id:)
+        result = subscription_result || payment_result || (status ? :subscription_not_found : :ignored)
+        BillingEvent.create!(provider: "razorpay", provider_event_id: event_id, user: sub&.user || payment&.payer, event_type: payload["event"], payload:, processing_result: result, processed_at: Time.current)
       end
       render json: { ok: true }
+    rescue JSON::ParserError
+      render_error("Invalid webhook payload", :bad_request)
     rescue ActiveRecord::RecordNotUnique
+      raise unless event_id && BillingEvent.exists?(provider: "razorpay", provider_event_id: event_id)
+
       render json: { ok: true, duplicate: true }
     end
 
@@ -94,22 +102,26 @@ module Billing
       end
     end
 
-    def process_booking_payment(payload)
-      return unless payload["event"] == "payment.captured"
+    def process_booking_payment(payload, event_at:, event_id:)
+      return [nil, nil] unless payload["event"] == "payment.captured"
       entity = payload.dig("payload", "payment", "entity") || {}
       notes = entity["notes"] || {}
       payment = BookingPayment.find_by(id: notes["payment_id"])
-      provider_order_id = entity["order_id"] || entity["id"]
+      provider_order_id = entity["order_id"]
       payment ||= BookingPayment.find_by(provider_order_id:) if provider_order_id.present?
-      return unless payment&.provider == "razorpay"
-      return payment if payment.status == "paid"
-      return unless payment.provider_order_id.present? && provider_order_id.present?
-      return unless ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id.to_s, provider_order_id.to_s)
-      return unless entity["status"] == "captured"
-      return unless entity["amount"].to_i == payment.amount * 100
-      return unless entity["currency"].to_s.upcase == payment.currency
-      payment.update!(status: "paid", provider_payment_id: entity["id"] || payment.provider_payment_id)
-      payment
+      return [payment, :payment_not_found] unless payment&.provider == "razorpay"
+
+      [payment, payment.apply_capture!(entity:, event_at:, event_id:)]
+    end
+
+    def provider_event_time(payload)
+      value = payload["created_at"]
+      return Time.current if value.blank?
+      return Time.at(value.to_i).utc if value.is_a?(Numeric) || value.to_s.match?(/\A\d+\z/)
+
+      Time.zone.parse(value.to_s)
+    rescue ArgumentError, TypeError
+      Time.current
     end
 
     def current_subscription = Subscription.where(user: current_user, status: %w[active trialing pending past_due]).order(created_at: :desc).first
