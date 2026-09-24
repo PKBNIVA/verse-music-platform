@@ -71,7 +71,13 @@ class TalentController < ApplicationController
   def filter(scope)
     if params[:q].present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:q])}%"
-      scope = scope.joins(:profile).where("users.name ILIKE :q OR profiles.headline ILIKE :q OR profiles.bio ILIKE :q", q:)
+      scope = scope.joins(:profile).where(<<~SQL.squish, q:)
+        users.name ILIKE :q OR profiles.headline ILIKE :q OR profiles.bio ILIKE :q OR
+        profiles.skills::text ILIKE :q OR profiles.credits::text ILIKE :q OR
+        profiles.gear::text ILIKE :q OR profiles.software::text ILIKE :q OR
+        profiles.roles::text ILIKE :q OR profiles.instruments::text ILIKE :q OR
+        profiles.genres::text ILIKE :q
+      SQL
     end
     scope = scope.joins(:profile).where("profiles.location ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:location])}%") if params[:location].present?
     scope = scope.joins(:profile).where("profiles.roles::text ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:role])}%") if params[:role].present?

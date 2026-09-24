@@ -64,8 +64,15 @@ class ActsController < ApplicationController
 
   def filtered_scope
     scope = Act.includes(:act_members, owner: :profile).where(status: "active").order(verified: :desc, updated_at: :desc)
-    scope = scope.where("name ILIKE :q OR tagline ILIKE :q OR bio ILIKE :q", q: "%#{ActiveRecord::Base.sanitize_sql_like(params[:q])}%") if params[:q].present?
-    scope = scope.where("city ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:city])}%") if params[:city].present?
+    if params[:q].present?
+      q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:q])}%"
+      scope = scope.left_outer_joins(:act_members).where(<<~SQL.squish, q:).distinct
+        acts.name ILIKE :q OR acts.tagline ILIKE :q OR acts.bio ILIKE :q OR
+        acts.act_type ILIKE :q OR acts.genres::text ILIKE :q OR acts.event_types::text ILIKE :q OR
+        act_members.role_name ILIKE :q OR act_members.instrument ILIKE :q
+      SQL
+    end
+    scope = scope.where("acts.city ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:city])}%") if params[:city].present?
     scope.limit(100)
   end
 
