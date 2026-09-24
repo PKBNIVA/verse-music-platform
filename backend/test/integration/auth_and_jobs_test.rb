@@ -365,6 +365,11 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "Shortlisted", application.reload.status
 
+    patch "/api/employer/applications/#{application.id}", params: { status: "Interview Scheduled" }, headers: auth(token), as: :json
+    assert_response :unprocessable_entity
+    patch "/api/employer/applications/#{application.id}", params: { status: "Interview Scheduled", interviewDate: 2.days.from_now }, headers: auth(token), as: :json
+    assert_response :success
+
     patch "/api/employer/applications/#{application.id}", params: { status: "Offer" }, headers: auth(token), as: :json
     assert_response :success
     patch "/api/employer/applications/#{application.id}", params: { status: "Hired" }, headers: auth(token), as: :json
