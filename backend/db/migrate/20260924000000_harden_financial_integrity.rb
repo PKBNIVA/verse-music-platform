@@ -32,7 +32,7 @@ class HardenFinancialIntegrity < ActiveRecord::Migration[7.2]
   end
 
   def down
-    CHECKS.each { |name, (table,)| remove_check_constraint table, name: }
+    CHECKS.each { |name, config| remove_check_constraint config.first, name: }
     remove_column :booking_payments, :last_provider_event_id
     remove_column :booking_payments, :provider_state_at
     remove_column :billing_events, :processing_result
