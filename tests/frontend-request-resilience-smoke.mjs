@@ -24,7 +24,12 @@ globalThis.window = {
 };
 
 const apiModule = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
-const { apiDelete, apiGet, apiPost, ApiError, setAccessToken, uploadMedia } = apiModule;
+const { apiDelete, apiGet, apiPost, ApiError, hasAccessToken, setAccessToken, uploadMedia } = apiModule;
+
+assert.equal(hasAccessToken(), false);
+setAccessToken('stored-token');
+assert.equal(hasAccessToken(), true);
+setAccessToken(null);
 
 // GET requests get one bounded retry for transient network failures.
 let calls = 0;
@@ -48,6 +53,47 @@ assert.equal(calls, 1);
 // Empty successful responses are valid and must not fail JSON parsing.
 globalThis.fetch = async () => new Response(null, { status: 204 });
 assert.equal(await apiDelete('/saved-jobs/1'), undefined);
+
+// A GET has one total deadline across all attempts and a deadline abort is never retried.
+calls = 0;
+globalThis.fetch = async (_url, options) => {
+  calls += 1;
+  return new Promise((_resolve, reject) => {
+    options.signal.addEventListener('abort', () => reject(options.signal.reason), { once: true });
+  });
+};
+await assert.rejects(
+  apiGet('/slow', { timeoutMs: 20 }),
+  (error) => error instanceof ApiError && error.code === 'REQUEST_TIMEOUT',
+);
+assert.equal(calls, 1);
+
+// A transient failure is not retried when the remaining total budget cannot fund another attempt.
+calls = 0;
+globalThis.fetch = async () => {
+  calls += 1;
+  throw new TypeError('offline');
+};
+await assert.rejects(
+  apiGet('/budget-exhausted', { timeoutMs: 100 }),
+  (error) => error instanceof ApiError && error.code === 'NETWORK_ERROR',
+);
+assert.equal(calls, 1);
+
+// A retryable response is returned promptly when its retry delay would exceed the total budget.
+calls = 0;
+globalThis.fetch = async () => {
+  calls += 1;
+  return new Response(JSON.stringify({ error: 'Busy' }), {
+    status: 503,
+    headers: { 'content-type': 'application/json', 'retry-after': '2' },
+  });
+};
+await assert.rejects(
+  apiGet('/busy', { timeoutMs: 100 }),
+  (error) => error instanceof ApiError && error.status === 503,
+);
+assert.equal(calls, 1);
 
 // Correlation IDs are preserved for support and incident diagnosis.
 globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Unavailable' }), {

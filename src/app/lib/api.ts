@@ -1,8 +1,16 @@
 export const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
-const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_TIMEOUT_MS = 12_000;
+const MIN_RETRY_ATTEMPT_MS = 250;
 const RETRYABLE_GET_STATUSES = new Set([429, 502, 503, 504]);
 let authRedirectStarted = false;
+
+class RequestDeadlineError extends Error {
+  constructor() {
+    super('Request deadline exceeded');
+    this.name = 'AbortError';
+  }
+}
 
 export type ApiOptions = RequestInit & { timeoutMs?: number; skipAuthRedirect?: boolean };
 
@@ -70,7 +78,7 @@ async function fetchWithTimeout(url: string, options: ApiOptions) {
   const abortFromCaller = () => controller.abort(callerSignal?.reason);
   callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
   if (callerSignal?.aborted) abortFromCaller();
-  const timer = window.setTimeout(() => controller.abort(), timeoutMs);
+  const timer = window.setTimeout(() => controller.abort(new RequestDeadlineError()), timeoutMs);
 
   try {
     return await fetch(url, { ...fetchOptions, signal: controller.signal });
@@ -89,18 +97,24 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
   const method = (options.method || 'GET').toUpperCase();
   const canRetry = method === 'GET';
   const { timeoutMs, skipAuthRedirect, signal, ...requestOptions } = options;
+  const deadlineAt = Date.now() + (timeoutMs ?? DEFAULT_TIMEOUT_MS);
   let lastResponse: Response | undefined;
 
   for (let attempt = 0; attempt <= (canRetry ? 1 : 0); attempt += 1) {
     try {
+      const remainingMs = Math.max(0, deadlineAt - Date.now());
+      if (remainingMs === 0) throw new RequestDeadlineError();
       const response = await fetchWithTimeout(`${API_BASE}${path}`, {
-        ...requestOptions, method, headers, credentials: 'omit', timeoutMs, signal,
+        ...requestOptions, method, headers, credentials: 'omit', timeoutMs: remainingMs, signal,
       });
       lastResponse = response;
 
       if (canRetry && attempt === 0 && RETRYABLE_GET_STATUSES.has(response.status)) {
-        await wait(retryDelay(response), signal);
-        continue;
+        const delayMs = retryDelay(response);
+        if (deadlineAt - Date.now() >= delayMs + MIN_RETRY_ATTEMPT_MS) {
+          await wait(delayMs, signal);
+          continue;
+        }
       }
 
       if (response.status === 204) return undefined as T;
@@ -112,9 +126,15 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
     } catch (error) {
       if (error instanceof ApiError) throw error;
       if (signal?.aborted) throw error;
+      if (error instanceof RequestDeadlineError) {
+        throw new ApiError('Request timed out. Please try again.', 0, 'REQUEST_TIMEOUT');
+      }
       if (canRetry && attempt === 0) {
-        await wait(retryDelay(lastResponse), signal);
-        continue;
+        const delayMs = retryDelay(lastResponse);
+        if (deadlineAt - Date.now() >= delayMs + MIN_RETRY_ATTEMPT_MS) {
+          await wait(delayMs, signal);
+          continue;
+        }
       }
       const timedOut = error instanceof DOMException && error.name === 'AbortError';
       throw new ApiError(
@@ -135,6 +155,10 @@ export function setAccessToken(token?: string | null) {
   } else {
     sessionStorage.removeItem('verse_access_token');
   }
+}
+
+export function hasAccessToken() {
+  return Boolean(sessionStorage.getItem('verse_access_token'));
 }
 
 export const apiGet = <T = any>(path: string, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'GET' });

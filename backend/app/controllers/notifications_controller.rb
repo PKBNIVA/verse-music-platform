@@ -9,6 +9,10 @@ class NotificationsController < ApplicationController
     render json: { notifications:, unread: scope.where(read_at: nil).count }
   end
 
+  def unread
+    render json: { unread: current_user.notifications.where(read_at: nil).count }
+  end
+
   def update
     notification = current_user.notifications.find(params[:id])
     notification.update!(read_at: params[:read] == false ? nil : Time.current)

@@ -42,6 +42,7 @@ Rails.application.routes.draw do
     end
 
     resources :portfolio, only: %i[index create update destroy], controller: "portfolio"
+    get "notifications/unread", to: "notifications#unread"
     resources :notifications, only: %i[index update]
     resources :reports, only: :create
     resources :verification_requests, path: "verification-requests", only: :create
