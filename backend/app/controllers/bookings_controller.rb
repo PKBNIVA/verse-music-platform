@@ -10,6 +10,7 @@ class BookingsController < ApplicationController
   def create
     act = Act.where(status: "active").find(params[:actId])
     return render_error("You cannot book your own act.", :conflict) if act.owner_id == current_user.id
+    booking = nil
     BookingRequest.transaction do
       booking = BookingRequest.create!(act:, requester: current_user, event_type: params[:eventType], event_name: params[:eventName], event_date: params[:eventDate], start_time: params[:startTime], duration_minutes: params[:durationMinutes], venue_name: params[:venueName], venue_address: params[:venueAddress], city: params[:city], audience_size: params[:audienceSize], indoor_outdoor: params[:indoorOutdoor], budget_min: params[:budgetMin], budget_max: params[:budgetMax], currency: params[:currency].presence || "INR", requirements: params[:requirements], production_provided: params[:productionProvided] || [], travel_provided: params[:travelProvided] || false, accommodation_provided: params[:accommodationProvided] || false, status: "requested")
       Notification.create!(user: act.owner, kind: "booking", title: "New booking enquiry", body: "#{current_user.name} enquired about #{act.name}.", link: "/bookings")
@@ -20,6 +21,7 @@ class BookingsController < ApplicationController
 
   def quote
     booking = owned_booking
+    quote = nil
     booking.with_lock do
       raise BookingRequest::InvalidTransition unless %w[requested viewed negotiating quoted].include?(booking.status)
       quote = booking.booking_quotes.create!(created_by: current_user, performance_fee: params[:performanceFee], travel_fee: params[:travelFee] || 0, production_fee: params[:productionFee] || 0, other_fee: params[:otherFee] || 0, currency: params[:currency].presence || booking.currency, deposit_percent: params[:depositPercent] || 50, valid_until: params[:validUntil], inclusions: params[:inclusions], exclusions: params[:exclusions], cancellation_terms: params[:cancellationTerms], status: "sent")
