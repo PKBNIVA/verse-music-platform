@@ -105,6 +105,13 @@ class BookingsController < ApplicationController
   def owned_booking = BookingRequest.joins(:act).where(acts: { owner_id: current_user.id }).find(params[:id])
   def booking_json(b)
     quote = b.booking_quotes.max_by(&:created_at)
-    b.attributes.merge(actName: b.act.name, requesterName: b.requester.name, isOwner: b.act.owner_id == current_user.id, isRequester: b.requester_id == current_user.id, latestQuoteTotal: quote&.total, latestQuoteCurrency: quote&.currency, latestDepositPercent: quote&.deposit_percent, paidAmount: b.booking_payments.select { _1.status == "paid" }.sum(&:amount))
+    quote_json = quote && {
+      id: quote.id, performanceFee: quote.performance_fee, travelFee: quote.travel_fee,
+      productionFee: quote.production_fee, otherFee: quote.other_fee, total: quote.total,
+      currency: quote.currency, depositPercent: quote.deposit_percent, validUntil: quote.valid_until,
+      inclusions: quote.inclusions, exclusions: quote.exclusions,
+      cancellationTerms: quote.cancellation_terms, status: quote.status
+    }
+    b.attributes.merge(actName: b.act.name, requesterName: b.requester.name, isOwner: b.act.owner_id == current_user.id, isRequester: b.requester_id == current_user.id, latestQuoteTotal: quote&.total, latestQuoteCurrency: quote&.currency, latestDepositPercent: quote&.deposit_percent, latestQuote: quote_json, paidAmount: b.booking_payments.select { _1.status == "paid" }.sum(&:amount), paymentCount: b.booking_payments.size)
   end
 end
