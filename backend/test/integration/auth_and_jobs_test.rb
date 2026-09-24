@@ -387,14 +387,16 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   test "draft acts are owner-only and public act data excludes private fields" do
     owner = User.create!(name: "Private Act Owner", email: "private-act-owner@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
     owner.create_profile!
-    outsider_token = register("Act Browser", "act-browser@example.com", "employer")
-    draft = Act.create!(owner:, name: "Unannounced Act", act_type: "band", status: "draft", tech_rider_url: "https://example.com/private-tech.pdf", hospitality_rider_url: "https://example.com/private-hospitality.pdf")
+    outsider = User.create!(name: "Act Browser", email: "act-browser@example.com", password: "StrongPass123!", role: "employer", status: "active")
+    outsider.create_profile!
+    outsider_token = session_for(outsider)
+    draft = Act.create!(owner:, name: "Unannounced Act", act_type: "band", status: "draft", currency: "INR", fee_basis: "event", tech_rider_url: "https://example.com/private-tech.pdf", hospitality_rider_url: "https://example.com/private-hospitality.pdf")
     draft.act_members.create!(user: owner, display_name: owner.name, role_name: "Leader", is_leader: true, member_status: "confirmed")
 
     get "/api/acts/#{draft.id}", headers: auth(outsider_token)
     assert_response :not_found
 
-    get "/api/acts/#{draft.id}", headers: auth(login(owner.email))
+    get "/api/acts/#{draft.id}", headers: auth(session_for(owner))
     assert_response :success
     assert_equal owner.id, response.parsed_body.dig("act", "owner_id")
 
@@ -423,4 +425,10 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   end
 
   def auth(token) = { "Authorization" => "Bearer #{token}" }
+
+  def session_for(user)
+    raw = SecureRandom.urlsafe_base64(48)
+    user.sessions.create!(token_digest: Digest::SHA256.hexdigest(raw), expires_at: 30.days.from_now)
+    raw
+  end
 end
