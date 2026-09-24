@@ -105,8 +105,8 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
   end
 
   test "notification unread endpoint returns only the authenticated count" do
-    token = register("Unread User", "unread@example.com", "jobseeker")
-    user = User.find_by!(email: "unread@example.com")
+    user = User.create!(name: "Unread User", email: "unread@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    token = session_for(user)
     user.notifications.create!(kind: "test", title: "Unread one")
     user.notifications.create!(kind: "test", title: "Unread two")
     user.notifications.create!(kind: "test", title: "Already read", read_at: Time.current)
