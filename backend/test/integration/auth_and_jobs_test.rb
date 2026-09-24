@@ -104,6 +104,22 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal 2, response.parsed_body.fetch("notifications").length
   end
 
+  test "notification unread endpoint returns only the authenticated count" do
+    user = User.create!(name: "Unread User", email: "unread@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    token = session_for(user)
+    user.notifications.create!(kind: "test", title: "Unread one")
+    user.notifications.create!(kind: "test", title: "Unread two")
+    user.notifications.create!(kind: "test", title: "Already read", read_at: Time.current)
+
+    get "/api/notifications/unread", headers: auth(token)
+
+    assert_response :success
+    assert_equal({ "unread" => 2 }, response.parsed_body)
+
+    get "/api/notifications/unread"
+    assert_response :unauthorized
+  end
+
   test "urgent request filters apply to city and role" do
     token = register("Urgent Buyer", "urgent-buyer@example.com", "employer")
     requester = User.find_by!(email: "urgent-buyer@example.com")

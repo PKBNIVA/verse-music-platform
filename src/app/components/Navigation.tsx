@@ -19,7 +19,7 @@ export function Navigation() {
   const isJobSeeker = user?.role === 'jobseeker';
   const baseUrl = isJobSeeker ? '/jobseeker' : '/employer';
   const [unread, setUnread] = useState(0);
-  useEffect(() => { apiGet<any>('/notifications').then(d => setUnread(d.unread || 0)).catch(() => {}); }, [location.pathname]);
+  useEffect(() => { apiGet<any>('/notifications/unread').then(d => setUnread(d.unread || 0)).catch(() => {}); }, []);
 
   const groups:NavGroup[] = isJobSeeker ? [
     { label:'Career', items:[{path:`${baseUrl}/jobs`,icon:Search,label:'Explore work'},{path:`${baseUrl}/saved`,icon:Star,label:'Saved'},{path:`${baseUrl}/applications`,icon:Briefcase,label:'Applications'},{path:`${baseUrl}/portfolio`,icon:FileText,label:'Portfolio'},{path:`${baseUrl}/availability`,icon:Clock3,label:'Availability'},{path:`${baseUrl}/resources`,icon:BookOpen,label:'Resources'}] },
