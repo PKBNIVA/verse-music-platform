@@ -1,15 +1,18 @@
 class ActsController < ApplicationController
-  def public_index = render(json: { acts: filtered_scope.map(&:api_json) })
-  def public_show = render(json: { act: Act.includes(:act_members, owner: :profile).where(status: "active").find(params[:id]).api_json })
+  def public_index = render(json: { acts: filtered_scope.map(&:public_json) })
+  def public_show = render(json: { act: Act.includes(:act_members, owner: :profile).where(status: "active").find(params[:id]).public_json })
 
   def index
     return unless authenticate!
-    render json: { acts: filtered_scope.map(&:api_json) }
+    render json: { acts: filtered_scope.map(&:public_json) }
   end
 
   def show
     return unless authenticate!
-    render json: { act: Act.includes(:act_members, owner: :profile).find(params[:id]).api_json }
+    scope = Act.includes(:act_members, owner: :profile)
+    scope = scope.where("acts.status = ? OR acts.owner_id = ?", "active", current_user.id) unless current_user.admin?
+    act = scope.find(params[:id])
+    render json: { act: act.owner_id == current_user.id || current_user.admin? ? act.api_json : act.public_json }
   end
 
   def mine
