@@ -55,7 +55,7 @@ test.describe('real frontend and Rails journeys', () => {
       await page.getByLabel('Email').fill(email);
       await page.getByLabel('Password', {exact: true}).fill(password);
       await page.getByRole('button', {name: 'Sign in'}).click();
-      await expect(page).toHaveURL(new RegExp(`/${role}$`));
+      await expect.poll(() => new URL(page.url()).pathname).toBe(`/${role}`);
       await page.goto(profilePath);
       if (role === 'jobseeker') {
         await expect(page.getByPlaceholder(/Playback singer/)).toHaveValue('Integration vocalist');
