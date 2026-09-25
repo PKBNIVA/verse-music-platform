@@ -1,4 +1,5 @@
 require "test_helper"
+require "minitest/mock"
 
 class ProviderContractsTest < ActiveSupport::TestCase
   Response = Struct.new(:status, :body) do
