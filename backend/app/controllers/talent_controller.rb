@@ -31,7 +31,10 @@ class TalentController < ApplicationController
       availability = AvailabilityWindow.where(user: candidate, status: "available").where("end_at > ?", Time.current).order(:start_at).limit(5).map do |window|
         { startAt: window.start_at, endAt: window.end_at, status: window.status, city: window.city }
       end
-      public_profile(candidate).merge(portfolio: candidate.portfolio_items.where(visibility: "public").limit(8).map(&:api_json), availability:)
+      public_profile(candidate).merge(
+        "portfolio" => candidate.portfolio_items.where(visibility: "public").limit(8).map(&:api_json),
+        "availability" => availability
+      )
     end
     render json: { professionals: }
   end
