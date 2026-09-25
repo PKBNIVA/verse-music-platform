@@ -84,16 +84,16 @@
   },
   "devDependencies": {
     "@axe-core/playwright": "4.10.2",
-    "@playwright/test": "1.55.0",
+    "@playwright/test": "1.55.1",
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
-    "playwright-core": "1.55.0",
+    "playwright-core": "1.55.1",
     "tailwindcss": "4.1.12",
-    "vite": "6.3.5"
+    "vite": "6.4.3"
   },
   "pnpm": {
     "overrides": {
-      "vite": "6.3.5"
+      "vite": "6.4.3"
     }
   }
 }
