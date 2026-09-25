@@ -52,7 +52,7 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
     assert_operator response.parsed_body.fetch("windows").size, :>=, 2
 
     get "/api/organizations", headers: auth(employer_token)
-    assert response.success?, "Workspace listing failed with #{response.status}: #{response.body}"
+    assert response.successful?, "Workspace listing failed with #{response.status}: #{response.body}"
     organization = response.parsed_body.fetch("organizations").first
     get "/api/organizations/#{organization.fetch('id')}/members", headers: auth(employer_token)
     assert_response :success
@@ -88,7 +88,8 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
     post "/api/bookings/#{booking.id}/status", params: { status: "completed" }, as: :json, headers: auth(employer_token)
     assert_response :conflict
 
-    post "/api/conversations/#{Conversation.first.id}/messages", params: { body: "   " }, as: :json, headers: auth(candidate_token)
+    conversation = Conversation.find_by!(candidate:)
+    post "/api/conversations/#{conversation.id}/messages", params: { body: "   " }, as: :json, headers: auth(candidate_token)
     assert_response :unprocessable_entity
   end
 
