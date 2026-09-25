@@ -48,8 +48,11 @@ test.describe('real frontend and Rails journeys', () => {
       await page.getByRole('button', {name: 'Open account menu'}).click();
       await page.getByRole('menuitem', {name: 'Sign out'}).click();
       await expect(page).toHaveURL(/\/$/);
-      const revoked = await request.get(`${apiBase}/me`, {headers: {Authorization: `Bearer ${token}`}});
-      expect(revoked.status()).toBe(401);
+      await expect.poll(async () => {
+        const revoked = await request.get(`${apiBase}/me`, {headers: {Authorization: `Bearer ${token}`}});
+        return revoked.status();
+      }).toBe(401);
+      await expect.poll(() => page.evaluate(() => sessionStorage.getItem('verse_access_token'))).toBeNull();
 
       await page.goto(`/auth/${role}`);
       await page.getByLabel('Email').fill(email);
