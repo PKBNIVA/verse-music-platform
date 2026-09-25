@@ -30,6 +30,20 @@ class ReadinessChecksTest < ActiveSupport::TestCase
     assert_not checker.optional_integrations_ready?(checks)
   end
 
+  test "Brevo configuration is recognized as email delivery" do
+    previous_key = ENV["BREVO_API_KEY"]
+    previous_sender = ENV["BREVO_SENDER_EMAIL"]
+    ENV["BREVO_API_KEY"] = "test-key"
+    ENV["BREVO_SENDER_EMAIL"] = "admin@notify.alienbrains.in"
+
+    checks = ReadinessChecks.new.call
+    assert_equal true, checks.dig(:emailDelivery, :ok)
+    assert_equal "brevo", checks.dig(:emailDelivery, :provider)
+  ensure
+    ENV["BREVO_API_KEY"] = previous_key
+    ENV["BREVO_SENDER_EMAIL"] = previous_sender
+  end
+
   private
 
   def fake_connection(&query)
