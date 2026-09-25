@@ -31,7 +31,7 @@ class ProviderContractsTest < ActiveSupport::TestCase
 
   test "Brevo rejection is reported as unsuccessful delivery" do
     with_env("BREVO_API_KEY" => "test-api-key", "BREVO_SENDER_EMAIL" => "sender@example.invalid") do
-      Faraday.stub(:post, Response.new(403, "{}")) do
+      Faraday.stub(:post, response_transport(403)) do
         result = EmailDelivery.call(to: "recipient@example.invalid", template: "verify_email",
           data: { link: "https://verse.example/verify-email?token=test" })
         assert_equal false, result.fetch(:delivered)
@@ -59,7 +59,7 @@ class ProviderContractsTest < ActiveSupport::TestCase
 
   test "Razorpay server error is ambiguous so callers must reconcile before retrying" do
     with_env("RAZORPAY_KEY_ID" => "rzp_test_id", "RAZORPAY_KEY_SECRET" => "test-secret") do
-      Faraday.stub(:post, Response.new(503, '{"error":{"description":"Unavailable","code":"SERVER_ERROR"}}')) do
+      Faraday.stub(:post, response_transport(503, '{"error":{"description":"Unavailable","code":"SERVER_ERROR"}}')) do
         error = assert_raises(RazorpayGateway::GatewayError) do
           RazorpayGateway.new.create_subscription(plan_id: "plan_test")
         end
@@ -74,6 +74,13 @@ class ProviderContractsTest < ActiveSupport::TestCase
 
   def fake_request
     Struct.new(:headers, :body, :options).new({}, nil, Struct.new(:open_timeout, :timeout).new)
+  end
+
+  def response_transport(status, body = "{}")
+    lambda do |_url, &configure|
+      configure.call(fake_request)
+      Response.new(status, body)
+    end
   end
 
   def with_env(values)
