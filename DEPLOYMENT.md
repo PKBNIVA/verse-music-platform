@@ -79,6 +79,13 @@ bin/rails test
 bin/rails zeitwerk:check
 ```
 
+The `integrated-journeys` CI job also builds the Vite frontend against a Rails server
+and disposable PostgreSQL test database. It exercises both account roles through
+registration, profile saving, logout, login, and server-side admin denial. It uses
+reserved `example.invalid` addresses and never calls production providers. The
+regular public-page browser checks use local API fixtures; their success alone does
+not verify the Rails integration.
+
 After deployment verify:
 
 1. `/api/live`, `/api/health`, and `/api/readiness`.
