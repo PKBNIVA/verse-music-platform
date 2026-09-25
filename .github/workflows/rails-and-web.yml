@@ -2,8 +2,16 @@ name: Rails and Web CI
 
 on:
   pull_request:
+    branches: [production]
   push:
-    branches: [main, codex/rails-api-migration]
+    branches: [production, codex/rails-api-migration]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rails-web-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   frontend:

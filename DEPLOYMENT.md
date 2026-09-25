@@ -1,58 +1,118 @@
-# Verse deployment: Vercel + Railway now, Heroku later
+# Verse production deployment
+
+## Source of truth
+
+Production is the Rails/Vite application on the GitHub `production` branch.
+
+- Frontend: Vercel
+- API and GoodJob workers: Railway
+- Database: Railway PostgreSQL
+- Object storage: S3-compatible storage when configured
+- Payments: Razorpay when live credentials are configured
+- Transactional email: Brevo when live credentials are configured
+
+The divergent legacy Node/Render application on `main` is not a release source. Do not
+connect a production provider to `main`.
 
 ## Frontend — Vercel
 
-- Import this GitHub repository.
-- Framework preset: Vite.
-- Build command: `npm run build`.
-- Output directory: `dist`.
-- Add `VITE_API_URL=https://<railway-service>.up.railway.app/api`.
-- Add `VITE_PUBLIC_URL=https://<vercel-project>.vercel.app` and replace the example hostname in `public/robots.txt` and `public/sitemap.xml` if Vercel assigns a different domain.
+Configure the repository root as a Vite project:
 
-`vercel.json` includes SPA routing and security/cache headers.
+- Production branch: `production`
+- Build command: `npm run build`
+- Output directory: `dist`
+- `VITE_API_URL=https://verse-music-platform-production.up.railway.app/api`
+- `VITE_PUBLIC_URL=https://verse-music-platform.vercel.app`
 
-## Backend — Railway (initial)
+`vercel.json` provides SPA routing, immutable asset caching, and browser security headers.
 
-- Create a Railway project from this GitHub repository.
-- Railway reads `railway.toml` and builds `backend/Dockerfile`.
-- Add PostgreSQL and expose its `DATABASE_URL` to the Rails service.
-- Configure the variables in `.env.example`; use the Railway-generated public domain for `API_HOST` and the Vercel domain for `FRONTEND_URL`, `FRONTEND_HOST`, and `ALLOWED_ORIGINS`.
-- The container runs `db:prepare` before Puma and Railway checks `/api/health`.
-- Durable jobs use GoodJob in the same PostgreSQL database. Set `GOOD_JOB_EXECUTION_MODE=async`, `GOOD_JOB_MAX_THREADS=2`, and `GOOD_JOB_ENABLE_CRON=true`; no Redis or second Railway service is required for the initial low-volume deployment.
-- Verify `/api/readiness` reports `backgroundJobs.ok=true`, `adapter=good_job`, and `schemaReady=true`. The 15-minute job-alert sweep creates deduplicated in-app notifications for daily and weekly alerts. Alerts with frequency `saved` are stored filters and are not delivered.
-- When queue volume grows, provision a worker from the same image with command `bundle exec good_job start`, change the web service to `GOOD_JOB_EXECUTION_MODE=external`, and leave cron enabled on exactly the worker service. This operational change does not require an application rewrite.
+## API — Railway
 
-Railway's current trial avoids an immediate charge. Keep resource limits at the free/trial defaults and set a usage limit before launch.
+Configure one service from `backend/Dockerfile`:
 
-## Backend — Heroku (later)
+- Production branch: `production`
+- Config file: `railway.toml`
+- PostgreSQL must expose `DATABASE_URL` to the Rails service.
+- The container runs `db:prepare` before Puma.
+- Railway's liveness probe is `/api/live`.
+- Operational checks are `/api/health` and `/api/readiness`.
 
-- Create an app using the Container stack and this repository's `heroku.yml`.
-- Attach Heroku Postgres.
-- Configure `SECRET_KEY_BASE`, `FRONTEND_URL`, `FRONTEND_HOST`, `ALLOWED_ORIGINS`, `API_HOST`, `ADMIN_EMAIL`, and a strong `ADMIN_PASSWORD`.
-- Configure the S3-compatible variables from `.env.example` before enabling uploads.
-- Keep `SEED_DEMO_DATA=false` in production.
+GoodJob initially runs inside the web service with
+`GOOD_JOB_EXECUTION_MODE=async`, `GOOD_JOB_MAX_THREADS=2`, and
+`GOOD_JOB_ENABLE_CRON=true`. Run cron on exactly one process. Move to a separate worker
+with `bundle exec good_job start` and `GOOD_JOB_EXECUTION_MODE=external` when queue
+volume or web latency justifies it.
 
-The release command runs `bin/rails db:migrate`; the web process starts Puma. Verify `/api/health`, `/api/readiness`, registration/login, a complete candidate application, employer review and admin moderation after deployment.
+## Required launch configuration
+
+Set strong, provider-managed secrets. Never commit values.
+
+- `SECRET_KEY_BASE`
+- `DATABASE_URL`
+- `FRONTEND_URL`, `FRONTEND_HOST`, and `ALLOWED_ORIGINS`
+- `API_HOST`
+- `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+- GoodJob variables from `.env.example`
+
+Before enabling each integration, configure and test its variables:
+
+- Razorpay: key ID, key secret, webhook secret, and plan IDs
+- Brevo: API key and verified sender
+- S3/R2: access keys, bucket, endpoint, region, and public base URL
+
+When Razorpay is not configured, production payment creation must fail closed; it must
+never silently use mock checkout.
+
+## Release gate
+
+Every release must pass:
+
+```bash
+npm ci
+npm run build
+npm run test:all
+npm run qa:e2e
+cd backend
+bundle install
+bin/rails db:prepare
+bin/rails test
+bin/rails zeitwerk:check
+```
+
+After deployment verify:
+
+1. `/api/live`, `/api/health`, and `/api/readiness`.
+2. Registration, verification, login, logout, and session expiry.
+3. Candidate discovery, save, application, messaging, and availability.
+4. Employer posting, application review, workspace, booking, and notifications.
+5. Admin moderation and audit logging.
+6. One controlled payment, webhook, refund, and reconciliation cycle after Razorpay is live.
+7. One real transactional email after Brevo is live.
+8. One upload/read/delete lifecycle after object storage is live.
+
+## Backups and rollback
+
+Railway's current trial does not provide managed backups or point-in-time recovery.
+Production launch requires a paid backup/PITR plan or an independently scheduled,
+encrypted, off-platform PostgreSQL backup with a tested restore procedure.
+
+Rollback application code by redeploying the last known-good `production` commit.
+Database migrations must remain backward-compatible with the previous application release.
 
 ## Reversible synthetic QA batches
 
-Verse can create a tagged, internally connected test population without sending registration email or calling a payment provider. Synthetic accounts use the reserved `example.invalid` domain, are marked in `users.synthetic_batch`, use internal payment records, and never include an admin account.
-
-Run this only in a disposable/staging database by default:
+Synthetic batches use reserved `example.invalid` addresses and are tagged in
+`users.synthetic_batch`. They never create an admin account, send registration email,
+or call a real payment provider.
 
 ```bash
 cd backend
-BATCH=qa-2026-09-25 JOBSEEKERS=225 EMPLOYERS=75 bin/rails synthetic_qa:seed
+BATCH=qa-YYYY-MM-DD JOBSEEKERS=225 EMPLOYERS=75 bin/rails synthetic_qa:seed
 bin/rails synthetic_qa:list
-BATCH=qa-2026-09-25 bin/rails synthetic_qa:purge
+BATCH=qa-YYYY-MM-DD bin/rails synthetic_qa:purge
 ```
 
-Production refuses both seed and purge unless `ALLOW_SYNTHETIC_QA=true` is explicitly set. A production run also requires `SYNTHETIC_QA_PASSWORD`; remove both variables immediately after the test window. Seed is intentionally non-repeatable for an existing batch, so operators cannot accidentally mix two runs. Purge is idempotent and removes the batch's accounts, profiles, sessions, opportunities, applications, messages, acts, bookings, internal payments, workspaces, reports, verification requests, audit entries and related join rows in one transaction.
-
-Before using production, take a database backup, record the batch name, keep Razorpay/real outbound delivery disabled for the synthetic window, start with 10 professionals and 3 employers, verify cleanup, then scale to the desired population. Never use a real or deliverable email domain for synthetic accounts.
-
-The application remains portable: both providers run the same Docker image and PostgreSQL schema. Moving later requires a PostgreSQL dump/restore, copying object-storage data, and copying environment variables; no backend rewrite is required.
-
-## Cost warning
-
-Vercel Hobby can be used for private development, but its terms restrict commercial use. Heroku has no permanent free tier. Keep the services unlaunched while developing locally if the immediate budget must remain zero, or use temporary free-tier infrastructure and move to Heroku before commercial launch.
+Production additionally requires temporary `ALLOW_SYNTHETIC_QA=true` and
+`SYNTHETIC_QA_PASSWORD`. Take a verified backup first, start with a small canary batch,
+purge it, then run the full batch. Remove temporary variables immediately afterward.
+Purge is transactional and idempotent.
