@@ -52,7 +52,7 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
     assert_operator response.parsed_body.fetch("windows").size, :>=, 2
 
     get "/api/organizations", headers: auth(employer_token)
-    assert_response :success
+    assert response.success?, "Workspace listing failed with #{response.status}: #{response.body}"
     organization = response.parsed_body.fetch("organizations").first
     get "/api/organizations/#{organization.fetch('id')}/members", headers: auth(employer_token)
     assert_response :success
@@ -76,10 +76,10 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
 
   test "cross-role authorization and invalid state changes remain blocked" do
     candidate = User.synthetic(BATCH).jobseeker.first
-    employer = User.synthetic(BATCH).employer.first
+    application = Application.joins(:job).where(candidate:).first!
+    employer = application.job.employer
     candidate_token = login(candidate.email)
     employer_token = login(employer.email)
-    application = Application.joins(:job).where(candidate:, jobs: { employer_id: employer.id }).first!
 
     patch "/api/employer/applications/#{application.id}", params: { status: "Hired" }, as: :json, headers: auth(candidate_token)
     assert_response :not_found
