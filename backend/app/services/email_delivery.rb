@@ -16,6 +16,7 @@ class EmailDelivery
 
   def self.call(to:, template:, data:)
     return { delivered: false, reason: "Recipient unavailable" } if to.blank?
+    return deliver_with_brevo(to:, template:, data:) if brevo_configured?
     return deliver_with_resend(to:, template:, data:) if ENV["RESEND_API_KEY"].present?
 
     webhook = ENV["EMAIL_DELIVERY_WEBHOOK"]
@@ -31,6 +32,29 @@ class EmailDelivery
   rescue StandardError => error
     Rails.logger.error("email delivery failed: #{error.class}")
     { delivered: false, reason: "delivery error" }
+  end
+
+  def self.brevo_configured?
+    ENV["BREVO_API_KEY"].present? && ENV["BREVO_SENDER_EMAIL"].present?
+  end
+
+  def self.deliver_with_brevo(to:, template:, data:)
+    content = TEMPLATES.fetch(template) { raise ArgumentError, "Unknown email template" }
+    link = data.fetch(:link)
+    response = Faraday.post("https://api.brevo.com/v3/smtp/email") do |request|
+      request.headers["Content-Type"] = "application/json"
+      request.headers["Accept"] = "application/json"
+      request.headers["api-key"] = ENV.fetch("BREVO_API_KEY")
+      request.body = {
+        sender: { name: ENV.fetch("BREVO_SENDER_NAME", "Verse"), email: ENV.fetch("BREVO_SENDER_EMAIL") },
+        to: [{ email: to }], subject: content[:subject],
+        htmlContent: email_html(content:, link:),
+        textContent: "#{content[:heading]}\n\n#{content[:copy]}\n\n#{link}"
+      }.to_json
+      request.options.open_timeout = 5
+      request.options.timeout = 10
+    end
+    { delivered: response.success?, status: response.status, provider: "brevo" }
   end
 
   def self.deliver_with_resend(to:, template:, data:)
@@ -57,5 +81,5 @@ class EmailDelivery
     HTML
   end
 
-  private_class_method :deliver_with_resend, :email_html
+  private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html
 end
