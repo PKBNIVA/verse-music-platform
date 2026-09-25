@@ -34,6 +34,23 @@ Railway's current trial avoids an immediate charge. Keep resource limits at the 
 
 The release command runs `bin/rails db:migrate`; the web process starts Puma. Verify `/api/health`, `/api/readiness`, registration/login, a complete candidate application, employer review and admin moderation after deployment.
 
+## Reversible synthetic QA batches
+
+Verse can create a tagged, internally connected test population without sending registration email or calling a payment provider. Synthetic accounts use the reserved `example.invalid` domain, are marked in `users.synthetic_batch`, use internal payment records, and never include an admin account.
+
+Run this only in a disposable/staging database by default:
+
+```bash
+cd backend
+BATCH=qa-2026-09-25 JOBSEEKERS=225 EMPLOYERS=75 bin/rails synthetic_qa:seed
+bin/rails synthetic_qa:list
+BATCH=qa-2026-09-25 bin/rails synthetic_qa:purge
+```
+
+Production refuses both seed and purge unless `ALLOW_SYNTHETIC_QA=true` is explicitly set. A production run also requires `SYNTHETIC_QA_PASSWORD`; remove both variables immediately after the test window. Seed is intentionally non-repeatable for an existing batch, so operators cannot accidentally mix two runs. Purge is idempotent and removes the batch's accounts, profiles, sessions, opportunities, applications, messages, acts, bookings, internal payments, workspaces, reports, verification requests, audit entries and related join rows in one transaction.
+
+Before using production, take a database backup, record the batch name, keep Razorpay/real outbound delivery disabled for the synthetic window, start with 10 professionals and 3 employers, verify cleanup, then scale to the desired population. Never use a real or deliverable email domain for synthetic accounts.
+
 The application remains portable: both providers run the same Docker image and PostgreSQL schema. Moving later requires a PostgreSQL dump/restore, copying object-storage data, and copying environment variables; no backend rewrite is required.
 
 ## Cost warning
