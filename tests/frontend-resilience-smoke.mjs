@@ -24,4 +24,29 @@ assert.match(notifications, /catch\(e:any\)\{setItems\(xs=>xs\.map\(x=>x\.id===n
 const jobDetails = await read('../src/app/pages/JobDetails.tsx');
 assert.match(jobDetails, /user\?\.role==='jobseeker'&&<div className="flex gap-2 mb-5">/, 'save and report controls must be limited to jobseekers');
 
+const legal = await read('../src/app/pages/public/LegalPage.tsx');
+assert.doesNotMatch(legal, /starter terms|before launch|replace this placeholder|operational starter copy|production launch should|production operations should/i, 'public legal pages must not expose internal launch instructions');
+assert.match(legal, /Browser Storage & Session Notice/, 'session notice must describe the implemented browser storage model');
+assert.doesNotMatch(legal, /HttpOnly cookie/, 'session notice must not claim an unimplemented cookie model');
+assert.match(legal, /mailto:/, 'support pages must provide an actionable contact link');
+
+const availability = await read('../src/app/pages/Availability.tsx');
+assert.match(availability, /validRange/, 'availability submission must validate its date range before calling the API');
+assert.match(availability, /Try again/, 'availability load failures must provide a retry action');
+assert.match(availability, /Unable to remove availability/, 'availability deletion failures must be visible');
+
+const workspace = await read('../src/app/pages/Workspace.tsx');
+assert.match(workspace, /Unable to load workspaces/, 'workspace load failures must be visible');
+assert.match(workspace, /window\.confirm/, 'member removal must require confirmation');
+
+const adminTester = await read('../src/app/pages/AdminTester.tsx');
+assert.match(adminTester, /Unable to run platform checks/, 'admin runtime check failures must be visible');
+
+const catalogs = await Promise.all([
+  read('../src/app/pages/public/PublicJobs.tsx'),
+  read('../src/app/pages/public/PublicTalent.tsx'),
+  read('../src/app/pages/public/PublicActs.tsx'),
+]);
+for (const source of catalogs) assert.match(source, /auth\//, 'empty public catalogs must offer a useful account action');
+
 console.log('frontend resilience smoke: ok');
