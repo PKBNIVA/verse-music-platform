@@ -60,6 +60,24 @@ Before enabling each integration, configure and test its variables:
 - Brevo: API key and verified sender
 - S3/R2: access keys, bucket, endpoint, region, and public base URL
 
+## Provider integration acceptance
+
+The provider contract tests use fake transport responses; passing them verifies request
+construction and error handling, not a live provider connection. Record the outcome
+of each controlled test before declaring an integration operational.
+
+| Provider | Railway environment names | Controlled verification |
+| --- | --- | --- |
+| Razorpay | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_STUDIO` | Configure live plans and the webhook URL `https://verse-music-platform-production.up.railway.app/api/billing/webhook/razorpay`. Complete a controlled checkout, authenticated webhook, cancellation, and reconciliation check. Keep test and live credentials separate. |
+| Brevo | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Verify the sending domain and sender in Brevo, then deliver a verification and reset email to controlled addresses. Check provider acceptance, inbox receipt, bounce status, and the resulting links. |
+| S3-compatible storage | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT_URL_S3`, `AWS_PUBLIC_BASE_URL` | Upload, read, and delete a controlled image and audio file through the browser. Verify object durability, access policy, MIME/size rejection, CORS, and cleanup. |
+
+Keep credentials in Railway's secret settings, not in the repository or frontend
+`VITE_` variables. The public Razorpay Key ID is returned by the API only for checkout;
+its Key Secret and webhook secret must stay server-side. Vercel needs the public
+`VITE_API_URL` and `VITE_PUBLIC_URL` values documented above. If provider credentials
+are absent, report the corresponding flow as disabled or unverified.
+
 When Razorpay is not configured, production payment creation must fail closed; it must
 never silently use mock checkout.
 
