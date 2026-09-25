@@ -2,7 +2,9 @@ class OrganizationsController < ApplicationController
   before_action -> { authenticate!("jobseeker", "employer") }
 
   def index
-    scope = Organization.where(owner: current_user).or(Organization.joins(:organization_members).where(organization_members: { user_id: current_user.id })).distinct
+    scope = Organization.left_joins(:organization_members)
+      .where("organizations.owner_id = :user_id OR organization_members.user_id = :user_id", user_id: current_user.id)
+      .distinct
     render json: { organizations: scope.includes(:organization_members).map { |org| organization_json(org) } }
   end
 
