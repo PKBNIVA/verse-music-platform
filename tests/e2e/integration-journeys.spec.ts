@@ -28,6 +28,11 @@ test.describe('real frontend and Rails journeys', () => {
       const forbidden = await request.get(`${apiBase}/admin/stats`, {headers: {Authorization: `Bearer ${token}`}});
       expect(forbidden.status()).toBe(403);
 
+      const tour = page.getByRole('dialog', {name: 'Verse product tour'});
+      await expect(tour).toBeVisible();
+      await tour.getByRole('button', {name: 'Close tour'}).click();
+      await expect(tour).toBeHidden();
+
       if (role === 'jobseeker') {
         await page.getByPlaceholder(/Playback singer/).fill('Integration vocalist');
         await page.getByRole('button', {name: 'Save career profile'}).click();
