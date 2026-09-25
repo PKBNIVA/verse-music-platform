@@ -3,7 +3,7 @@ name: Verse QA Agent
 on:
   pull_request:
   push:
-    branches: [main, codex/rails-api-migration, codex/ux-hardening]
+    branches: [production, codex/rails-api-migration]
   schedule:
     - cron: '17 3 * * *'
   workflow_dispatch:
