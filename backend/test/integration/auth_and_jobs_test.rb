@@ -511,6 +511,23 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_not public_act.fetch("members").first.key?("userId")
   end
 
+  test "workspace index returns owned and joined organizations without duplicates" do
+    owner = User.create!(name: "Workspace Owner", email: "workspace-owner@example.com", password: "StrongPass123!", role: "employer", status: "active")
+    member = User.create!(name: "Workspace Member", email: "workspace-member@example.com", password: "StrongPass123!", role: "jobseeker", status: "active")
+    owned = Organization.create!(owner:, name: "Owned Studio", status: "active")
+    joined = Organization.create!(owner: member, name: "Joined Studio", status: "active")
+    owned.organization_members.create!(user: owner, role: "owner")
+    joined.organization_members.create!(user: member, role: "owner")
+    joined.organization_members.create!(user: owner, role: "member")
+
+    get "/api/organizations", headers: auth(session_for(owner))
+
+    assert_response :success
+    organizations = response.parsed_body.fetch("organizations")
+    assert_equal [joined.id, owned.id].sort, organizations.pluck("id").sort
+    assert_equal organizations.pluck("id").uniq, organizations.pluck("id")
+  end
+
   private
 
   def register(name, email, role)
