@@ -7,3 +7,9 @@ data/*.db-shm
 .DS_Store
 playwright-report/
 test-results/
+
+# Local QA stacks
+.qa-stack/
+dist-qa-*/
+backend/log/
+backend/tmp/
