@@ -198,6 +198,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       const isJson = /json/i.test(response.headers.get('content-type') || '');
       const parsed = isJson ? await response.json().catch(() => undefined) : undefined;
       if (response.ok && parsed === undefined) {
+        reportApiFailure({ status: response.status, code: 'INVALID_RESPONSE', method, path, requestId: requestIdFor(response) });
         throw new ApiError('Verse received an unexpected response. Please try again shortly.', response.status, 'INVALID_RESPONSE', requestIdFor(response));
       }
       const data = parsed ?? {};

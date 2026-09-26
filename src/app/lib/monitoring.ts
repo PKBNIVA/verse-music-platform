@@ -27,6 +27,9 @@ const MAX_QUEUE = 20;
 // small cap per page session, so an outage does not burn the monthly quota.
 const BURST_WINDOW_MS = 5 * 60_000;
 const MAX_SAMPLED_PER_SESSION = 5;
+// A non-JSON success means a deployment misconfiguration (e.g. the SPA served for /api/*):
+// one report per page session is enough.
+const ONCE_PER_SESSION_CODES = new Set(['INVALID_RESPONSE']);
 
 let client: SentryClient | null = null;
 let loading: Promise<boolean> | null = null;
@@ -47,6 +50,7 @@ export function classifyError(error: unknown): ErrorVerdict {
     if (candidate.name === 'ApiError' && typeof candidate.status === 'number') {
       const status = candidate.status;
       const code = typeof candidate.code === 'string' ? candidate.code : '';
+      if (ONCE_PER_SESSION_CODES.has(code)) return { action: 'sample', key: `api:${code}` };
       if (status >= 400 && status < 500) return { action: 'ignore' };
       if (code === 'UPLOAD_CANCELLED') return { action: 'ignore' };
       return { action: 'sample', key: `api:${status || code || 'unknown'}` };
@@ -59,7 +63,8 @@ export function classifyError(error: unknown): ErrorVerdict {
 export function allowSampled(key: string, now = Date.now()) {
   if (sampledCount >= MAX_SAMPLED_PER_SESSION) return false;
   const last = lastSampledAt.get(key);
-  if (last !== undefined && now - last < BURST_WINDOW_MS) return false;
+  const once = ONCE_PER_SESSION_CODES.has(key.replace(/^api:/, ''));
+  if (last !== undefined && (once || now - last < BURST_WINDOW_MS)) return false;
   lastSampledAt.set(key, now);
   sampledCount += 1;
   return true;
@@ -84,10 +89,11 @@ export function reportMessage(message: string, context?: ReportContext) {
 /** A failed API call the user saw (5xx, timeout, network). Reported sparingly. */
 export function reportApiFailure(details: { status: number; code?: string; method: string; path: string; requestId?: string }) {
   if (!SENTRY_DSN) return;
-  if (details.status >= 400 && details.status < 500) return;
+  const once = ONCE_PER_SESSION_CODES.has(details.code || '');
+  if (!once && details.status >= 400 && details.status < 500) return;
   // An offline device is the user's connection, not a Verse outage.
   if (details.code === 'NETWORK_ERROR' && typeof navigator !== 'undefined' && navigator.onLine === false) return;
-  const kind = String(details.status || details.code || 'unknown');
+  const kind = once ? String(details.code) : String(details.status || details.code || 'unknown');
   if (!allowSampled(`api:${kind}`)) return;
   const route = details.path.split('?')[0].replace(/\/(\d+|[0-9a-f]{8}-[0-9a-f-]{27,})(?=\/|$)/gi, '/:id');
   reportMessage(`API ${details.method} ${route} failed (${kind})`, {

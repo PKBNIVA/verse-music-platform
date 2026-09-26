@@ -41,7 +41,11 @@ assert.deepEqual(monitoring.classifyError(apiError(503)), { action: 'sample', ke
 assert.deepEqual(monitoring.classifyError(apiError(0, 'NETWORK_ERROR')), { action: 'sample', key: 'api:NETWORK_ERROR' });
 assert.equal(monitoring.classifyError(new TypeError('boom')).action, 'report');
 
+assert.deepEqual(monitoring.classifyError(apiError(200, 'INVALID_RESPONSE')), { action: 'sample', key: 'api:INVALID_RESPONSE' });
+
 const now = 1_000_000;
+assert.equal(monitoring.allowSampled('api:INVALID_RESPONSE', now), true);
+assert.equal(monitoring.allowSampled('api:INVALID_RESPONSE', now + 60 * 60_000), false, 'a misconfiguration is reported once per page session');
 assert.equal(monitoring.allowSampled('api:503', now), true);
 assert.equal(monitoring.allowSampled('api:503', now + 1_000), false, 'a burst of the same failure is sent once');
 assert.equal(monitoring.allowSampled('api:503', now + 6 * 60_000), true, 'the same failure is sent again after the window');
