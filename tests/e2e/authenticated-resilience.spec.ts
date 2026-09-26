@@ -93,7 +93,10 @@ for (const [status, reason] of [[401, 'an expired session'], [403, 'an inactive 
 
     await page.goto('/jobseeker/notifications');
     await expect(page).toHaveURL(/\/auth\/jobseeker$/);
-    expect(await page.evaluate(() => localStorage.getItem('verse_access_token'))).toBeNull();
+    // The SPA can reach /auth first and api()'s window.location.replace then reloads the same URL;
+    // an evaluate during that reload throws "Execution context was destroyed". Poll across it.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('verse_access_token')).catch(() => 'navigating')).toBeNull();
+    await expect(page).toHaveURL(/\/auth\/jobseeker$/);
   });
 }
 

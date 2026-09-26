@@ -121,7 +121,7 @@ class BookingCollaborationHardeningTest < ActionDispatch::IntegrationTest
   test "band projects workspaces and urgent responses reject blank or malformed input" do
     post "/api/band-projects", params: {}, headers: auth(@artist), as: :json
     assert_response :unprocessable_entity
-    assert_match(/Name can't be blank/, response.parsed_body.fetch("error"))
+    assert_equal "MISSING_FIELD", response.parsed_body.fetch("code")
     post "/api/band-projects", params: { name: "Crew", genres: "rock" }, headers: auth(@artist), as: :json
     assert_response :created
     project_id = response.parsed_body.fetch("id")

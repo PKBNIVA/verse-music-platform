@@ -329,8 +329,8 @@ export default function Bookings() {
                             Report a problem
                           </Button>
                         )}
-                        <Button size="sm" variant="outline" onClick={() => message(b.id)}>
-                          Message {b.isOwner ? b.requesterName : b.actName}
+                        <Button size="sm" variant="outline" className="max-w-full min-w-0" onClick={() => message(b.id)}>
+                          <span className="truncate max-w-[16rem]">Message {b.isOwner ? b.requesterName : b.actName}</span>
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => togglePayments(b.id)} aria-expanded={Boolean(paymentOpen[b.id])}>
                           {paymentOpen[b.id] ? "Hide payments" : "Payment history"} ({b.paymentCount || 0})

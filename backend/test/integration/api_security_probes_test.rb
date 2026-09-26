@@ -130,7 +130,7 @@ class ApiSecurityProbesTest < ActionDispatch::IntegrationTest
   end
 
   test "mass assignment: booking, quote, message and application annotation fields stay server-owned" do
-    post "/api/bookings", params: { actId: @world.refs[:emp][:act], eventType: "gig", city: "Pune", status: "accepted", requesterId: @world.user(:js2).id }, headers: h(:js), as: :json
+    post "/api/bookings", params: { actId: @world.refs[:emp][:act], eventType: "gig", city: "Pune", eventDate: 2.months.from_now.to_date.iso8601, status: "accepted", requesterId: @world.user(:js2).id }, headers: h(:js), as: :json
     assert_response :created
     booking = BookingRequest.find(response.parsed_body["id"])
     assert_equal ["requested", @js.id], [booking.status, booking.requester_id]
