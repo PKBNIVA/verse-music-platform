@@ -199,7 +199,8 @@ class ApiSecurityProbesTest < ActionDispatch::IntegrationTest
     probe!("job-alerts long name")
     post "/api/conversations/#{@world.refs[:js][:conversation]}/messages", params: { body: "b" * 100_000 }, headers: h(:js), as: :json
     probe!("message 100k")
-    assert_equal 5_000, Message.order(:created_at).last.body.length, "message bodies are truncated to 5000"
+    assert_equal [422, "MESSAGE_TOO_LONG"], [response.status, response.parsed_body["code"]], "oversized messages are rejected, not truncated"
+    assert Message.where("length(body) > 5000").none?, "no message body over 5000 characters is stored"
     post "/api/talent-folders", params: { name: "evil\u0000name" }, headers: h(:emp), as: :json
     probe!("NUL in JSON string")
     assert_equal 422, response.status

@@ -11,7 +11,7 @@ class ApiFrontendContractTest < ActionDispatch::IntegrationTest
                 type genre skills employerVerified applicationsCount featured saved].freeze
   CONTRACTS = [
     # [page, actor, path, top-level keys, { list => item keys }]
-    ["Navigation", :js, "/api/notifications/unread", %w[unread], {}],
+    ["Navigation", :js, "/api/notifications/unread", %w[unread unreadMessages], {}],
     ["authContext", :js, "/api/me", %w[user], {}],
     ["ProfileSetup", :js, "/api/me", [], { "user" => %w[id name role email profileComplete emailVerified headline skills genres instruments languages credits openTo roles gear software] }],
     ["CompanyProfile", :emp, "/api/me", [], { "user" => %w[companyName companyWebsite companySize companyDescription verified] }],
@@ -25,8 +25,8 @@ class ApiFrontendContractTest < ActionDispatch::IntegrationTest
     ["EmployerApplications", :emp, "/api/employer/applications", %w[applications], { "applications" => %w[id status jobId jobTitle candidateId candidateName candidateEmail candidateLocation experience skills coverLetter screeningAnswers recruiterNote recruiterRating allowedNextStatuses] }],
     ["Portfolio", :js, "/api/portfolio", %w[items], { "items" => %w[id type title url description creditedAs year featured thumbnailUrl waveformUrl visibility tags genres roles instruments mediaMetadata] }],
     ["Notifications", :js, "/api/notifications", %w[notifications unread], { "notifications" => %w[id title body link readAt createdAt type] }],
-    ["Messages", :js, "/api/conversations", %w[conversations], { "conversations" => %w[id candidateName employerName jobTitle lastMessage] }],
-    ["Messages", :js, "/api/conversations/{conversation}/messages", %w[messages], { "messages" => %w[id senderId body createdAt readAt] }],
+    ["Messages", :js, "/api/conversations", %w[conversations], { "conversations" => %w[id candidateName employerName jobTitle lastMessage counterpartName unreadCount lastMessageAt lastMessageFromMe] }],
+    ["Messages", :js, "/api/conversations/{conversation}/messages", %w[messages truncated limit], { "messages" => %w[id senderId body createdAt readAt] }],
     ["Availability", :js, "/api/availability", %w[windows], { "windows" => %w[id startAt endAt status city] }],
     ["CandidateSearch", :emp, "/api/candidates", %w[candidates], { "candidates" => %w[id name headline location skills verified bio shortlisted] }],
     ["CandidateSearch", :emp, "/api/candidates/{talent}", %w[candidate portfolio], { "candidate" => %w[id name headline] }],
@@ -50,7 +50,8 @@ class ApiFrontendContractTest < ActionDispatch::IntegrationTest
     ["Reviews", :js, "/api/reviews", %w[reviews eligibleEmployers], { "reviews" => %w[id rating title body authorName employerName] }],
     ["CareerResources", nil, "/api/resources", %w[resources], { "resources" => %w[id title category description url] }],
     ["Billing", :emp, "/api/billing/plans", %w[plans], { "plans" => %w[code name monthly trialDays activePosts seats shortlist bookings] }],
-    ["Billing", :emp, "/api/billing/subscription", %w[subscription plan purchasedPlan], {}],
+    ["Billing", :emp, "/api/billing/subscription", %w[subscription plan purchasedPlan summary history testMode], { "summary" => %w[status planCode planName nextChargeAt currentPeriodEnd], "history" => %w[paymentId invoiceId amount currency status at] }],
+    ["DemoDataPanel", :admin, "/api/admin/demo-data", %w[batches jobs busy demoUsers maxUsers sizes], { "batches" => %w[name demo artists employers users createdAt], "jobs" => %w[id kind state batch size], "sizes.small" => %w[artists employers] }],
     ["GlobalSearch", nil, "/api/search?q=Matrix", %w[results interpretedAs], { "results" => %w[type id url title subtitle description tags] }],
     ["ActsManager/BandBuilder", nil, "/api/taxonomy", %w[opportunityKinds functionAreas workplaces currencies actTypes eventTypes engagementTypes roleCategories instruments], {}],
     ["AdminDashboard", :admin, "/api/admin/stats", %w[stats], {}],
@@ -93,6 +94,16 @@ class ApiFrontendContractTest < ActionDispatch::IntegrationTest
     assert_keys response.parsed_body, %w[id conversation], "CandidateSearch message"
     post "/api/conversations/#{world.refs[:js][:conversation]}/messages", params: { body: "hi" }, headers: js, as: :json
     assert_keys response.parsed_body["message"], %w[id senderId body createdAt], "Messages send"
+    post "/api/auth/otp/request", params: { email: "contract-otp@example.com" }, as: :json
+    assert_keys response.parsed_body, %w[ok message expiresIn], "OTP request"
+    otp_known = response.parsed_body.except("debugCode")
+    post "/api/auth/otp/request", params: { email: world.user(:js).email }, as: :json
+    assert_equal otp_known, response.parsed_body.except("debugCode"), "OTP request answers identically for known and unknown emails"
+    post "/api/notifications/read-all", headers: js, as: :json
+    assert_keys response.parsed_body, %w[ok updated], "Notifications read-all"
+    post "/api/uploads/#{world.refs[:js][:upload]}/complete", headers: js, as: :json
+    assert_keys response.parsed_body, %w[upload url], "uploads complete"
+    assert_keys response.parsed_body["upload"], %w[id url status contentType byteSize filename], "uploads complete upload"
     post "/api/uploads/presign", params: { filename: "a.mp3", contentType: "audio/mpeg", size: 10 }, headers: js, as: :json
     assert_keys response.parsed_body, %w[mode uploadUrl], "uploadMedia presign"
     post "/api/bookings/#{world.refs[:js][:owned_booking]}/quote", params: { performanceFee: 100 }, headers: js, as: :json
@@ -123,6 +134,9 @@ class ApiFrontendContractTest < ActionDispatch::IntegrationTest
     RecentActivity.create!(user: world.user(:emp), kind: "profile_view", entity_id: js.id, label: js.name)
     AuditLog.create!(actor: js, action: "contract.seed", entity_type: "User", entity_id: js.id)
     Subscription.create!(user: world.user(:emp), plan_code: "pro", provider: "internal", status: "active", current_period_end: 10.days.from_now)
+    BillingEvent.create!(provider: "razorpay", provider_event_id: "evt_contract_charge", event_type: "subscription.charged", user: world.user(:emp),
+      processed_at: Time.current, processing_result: "applied",
+      payload: { "payload" => { "payment" => { "entity" => { "id" => "pay_c1", "invoice_id" => "inv_c1", "amount" => 249_900, "currency" => "INR", "status" => "captured", "created_at" => Time.current.to_i } } } })
   end
 
   def dig_first(body, list_path)

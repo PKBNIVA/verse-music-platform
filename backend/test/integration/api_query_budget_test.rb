@@ -28,12 +28,14 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
     ["/api/band-projects", :js, "band_projects"], ["/api/crew-plans", :js, "crew_plans"],
     ["/api/admin/users", :admin, "users"], ["/api/admin/jobs", :admin, "jobs"], ["/api/admin/reviews", :admin, "reviews"],
     ["/api/admin/verifications", :admin, "verification_requests"], ["/api/admin/reports", :admin, "reports"], ["/api/admin/audit", :admin, "audit_logs"],
-    ["/api/admin/subscriptions", :admin, "subscriptions"], ["/api/admin/billing-attempts", :admin, "billing_attempts"], ["/api/admin/bookings", :admin, "booking_requests"]
+    ["/api/admin/subscriptions", :admin, "subscriptions"], ["/api/admin/billing-attempts", :admin, "billing_attempts"], ["/api/admin/bookings", :admin, "booking_requests"],
+    ["/api/admin/billing-events", :admin, "billing_events"], ["/api/admin/demo-data", :admin, "audit_logs"]
   ].freeze
 
   N_PLUS_ONE = {
     "/api/urgent-requests" => "OWNER: urgent-requests — per-row UrgentRequestResponse.exists? and requester.profile (urgent_requests_controller.rb:12; includes(:requester) lacks :profile)",
-    "/api/talent-folders" => "OWNER: talent-folders — per-folder talent_folder_members.count (talent_folders_controller.rb:3)"
+    "/api/talent-folders" => "OWNER: talent-folders — per-folder talent_folder_members.count (talent_folders_controller.rb:3)",
+    "/api/admin/demo-data" => "OWNER: demo-data — GET /api/admin/demo-data runs one AuditLog query per demo job recorded in the last 30 min (SyntheticQa::DemoJobs.active calls find per id, demo_jobs.rb:29-31; busy? via index)"
   }.freeze
 
   UNBOUNDED = {
@@ -168,6 +170,9 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
       BillingAttempt.create!(user: employer, operation: "subscription_create", provider: "razorpay", idempotency_key: "grow-#{i}-#{SecureRandom.hex(3)}", state: "pending")
       RecentActivity.create!(user: emp, kind: "profile_view", entity_id: artist.id, label: artist.name)
       CareerResource.create!(title: "Grow #{i}", category: "live", status: "published", description: "x")
+      BillingEvent.create!(provider: "razorpay", provider_event_id: "evt_grow_#{i}", event_type: "payment.captured", user: employer, processed_at: Time.current, payload: {})
+      SyntheticQa::DemoJobs.record!(SecureRandom.uuid, "succeeded", actor_id: admin.id, kind: "seed", batch: "demo-grow-#{i}", size: "small")
+      User.create!(name: "Demo grow #{i}", email: "demo-grow-#{i}@example.com", password: ApiMatrixWorld::PASSWORD, role: "jobseeker", status: "active", synthetic_batch: "demo-grow-#{i}")
       AvailabilityWindow.create!(user: admin, start_at: 1.day.from_now, end_at: 2.days.from_now) if i.zero?
     end
   end

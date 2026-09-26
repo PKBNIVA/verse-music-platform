@@ -150,6 +150,22 @@ module ApiMatrixWorld
     )
     world.refs[:admin][:notification] = Notification.create!(user: admin, kind: "system", title: "Admin note", body: "x").id
     CareerResource.create!(title: "Rider basics", category: "live", status: "published", description: "How to write a rider")
+
+    # Stored uploads (disk, already verified: completing one again is an idempotent 200 with no storage call).
+    %i[js js2 emp emp2 admin].each do |actor|
+      world.refs[actor][:upload] = Upload.create!(user: u[actor], storage: "disk", key: "matrix-#{actor}-#{SecureRandom.hex(4)}", filename: "take.mp3",
+        content_type: "audio/mpeg", byte_size: 10, status: "complete", public_url: "https://example.com/uploads/#{actor}-#{SecureRandom.hex(3)}.mp3").id
+    end
+    world.refs[:shared][:upload] = world.refs[:js][:upload]
+    world.refs[:shared][:billing_event] = BillingEvent.create!(provider: "razorpay", provider_event_id: "evt_matrix_#{SecureRandom.hex(4)}", event_type: "payment.captured",
+      user: u[:emp], processed_at: Time.current, processing_result: "applied",
+      payload: { "payload" => { "payment" => { "entity" => { "id" => "pay_matrix", "order_id" => "order_matrix", "amount" => 50_000, "currency" => "INR" } } } }).id
+    demo_job_id = SecureRandom.uuid
+    SyntheticQa::DemoJobs.record!(demo_job_id, "succeeded", actor_id: admin.id, kind: "seed", batch: "demo-20260101-0000", size: "small")
+    world.refs[:shared][:demo_job] = demo_job_id
+    User.create!(name: "Matrix Demo Artist", email: "demo-matrix-#{SecureRandom.hex(3)}@example.com", password: PASSWORD, role: "jobseeker",
+      status: "active", profile_complete: true, synthetic_batch: "demo-20260101-0000").create_profile!(headline: "Demo")
+    world.refs[:shared][:demo_batch] = "demo-20260101-0000"
     world
   end
 

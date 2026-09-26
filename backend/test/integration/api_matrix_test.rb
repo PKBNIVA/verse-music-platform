@@ -92,7 +92,7 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
     [:get, "/api/admin/audit", :admin, { keys: %w[logs] }],
     [:get, "/api/admin/subscriptions", :admin, { keys: %w[subscriptions] }],
     [:get, "/api/admin/billing-attempts", :admin, { keys: %w[attempts] }],
-    [:post, "/api/admin/billing-attempts/{billing_attempt}/reconcile", :admin, { ok: [409], missing: :billing_attempt, note: "no provider id: reconciler refuses without calling Razorpay" }],
+    [:post, "/api/admin/billing-attempts/{billing_attempt}/reconcile", :admin, { ok: [503], missing: :billing_attempt, note: "fails closed (503 PAYMENTS_NOT_CONFIGURED) without Razorpay keys" }],
     [:get, "/api/admin/bookings", :admin, { keys: %w[bookings] }],
     [:post, "/api/admin/search/reindex", :admin, { keys: %w[count] }],
 
@@ -183,7 +183,21 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
     [:get, "/api/billing/subscription", :any, { keys: %w[subscription plan] }],
     [:post, "/api/billing/checkout", :talent, { ok: [200, 201], params: { planCode: "pro" }, bad: { planCode: "platinum" }, bad_status: [400] }],
     [:post, "/api/billing/cancel", :any, { ok: [200, 404] }],
-    [:post, "/api/billing/webhook/razorpay", :public, { ok: [401, 503], note: "unsigned webhook is refused" }]
+    [:post, "/api/billing/webhook/razorpay", :public, { ok: [401, 503], note: "unsigned webhook is refused" }],
+
+    # Email one-time codes: the request answer is identical for known and unknown addresses.
+    [:post, "/api/auth/otp/request", :public, { params: { email: "someone-new@example.com" }, bad: { email: "not-an-email" }, bad_status: [422], keys: %w[ok message expiresIn] }],
+    [:post, "/api/auth/otp/verify", :public, { ok: [401], params: ->(w, _a) { { email: w.user(:js).email, code: "000000" } }, bad: {}, bad_status: [401] }],
+    [:post, "/api/notifications/read-all", :any, { keys: %w[ok updated] }],
+    [:post, "/api/uploads/{upload}/complete", :any, { idor: true, missing: :upload, keys: %w[upload url] }],
+    [:delete, "/api/uploads/{upload}", :any, { idor: true, missing: :upload }],
+    [:get, "/api/admin/billing-events", :admin, { keys: %w[events nextBefore] }],
+    [:get, "/api/admin/billing-events/{billing_event}", :admin, { missing: :billing_event, keys: %w[event] }],
+    [:get, "/api/admin/demo-data", :admin, { keys: %w[batches jobs busy demoUsers maxUsers sizes] }],
+    [:post, "/api/admin/demo-data", :admin, { ok: [202], params: { size: "small" }, bad: { size: "enormous" }, bad_status: [422], keys: %w[jobId job] }],
+    [:delete, "/api/admin/demo-data", :admin, { ok: [202], keys: %w[jobId job] }],
+    [:get, "/api/admin/demo-data/jobs/{demo_job}", :admin, { missing: :demo_job, keys: %w[job] }],
+    [:delete, "/api/admin/demo-data/{demo_batch}", :admin, { ok: [202], keys: %w[jobId job] }]
   ].freeze
 
   # Findings in files owned by other workstreams: label => [step, reason]. The generated test
@@ -192,8 +206,6 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
   KNOWN_GAPS = {
     "POST /api/bookings/{requested_booking}/status" => [:idor,
       "OWNER: bookings — a non-party gets 409 'Invalid booking status change' instead of 404 (bookings_controller.rb:42 finds the booking without a party scope: existence oracle)"],
-    "POST /api/admin/billing-attempts/{billing_attempt}/reconcile" => [:allowed,
-      "OWNER: billing — reconcile returns 500 KeyError RAZORPAY_KEY_ID when Razorpay is not configured (BillingAttemptReconciler#initialize builds RazorpayGateway.new eagerly, razorpay_gateway.rb:7)"],
     "POST /api/organizations" => [:bad,
       "OWNER: organizations — POST /api/organizations {name: \"\"} creates a nameless workspace (201); Organization has no name presence validation"],
     "PATCH /api/portfolio/{portfolio}" => [:allowed,
@@ -210,6 +222,7 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
       next unless path.start_with?("/api/")
       verb = route.verb.to_s
       next if verb.blank?
+      next if path.start_with?("/api/dev/") # simulator-only; see ApiDevRoutesTest
       [verb, path]
     end.uniq
     covered = SPECS.map { |verb, path, _| [verb.to_s.upcase, path.split("?").first] }

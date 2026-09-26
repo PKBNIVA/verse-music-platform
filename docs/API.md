@@ -229,3 +229,26 @@ nameless workspace; portfolio updates require `type`; deleting a talent folder w
 talent, acts, reviews, urgent requests, employer applications, conversations, bookings and crew
 plans. N+1: `/urgent-requests` (~2 queries per row; 205 queries for 100 rows) and
 `/talent-folders`. `fitScore` is read by JobSearch/JobDetails but only `/dashboard` returns it.
+
+## Added after the first matrix (integrated branch)
+
+| Method | Path | Auth | Params | Response / notes |
+| --- | --- | --- | --- | --- |
+| POST | `/auth/otp/request` | public | `email` (+ `name, role` to sign up) | `{ok, message, expiresIn}`, identical for known and unknown emails (`debugCode` only outside production without email); 422 `INVALID_EMAIL`; 429 |
+| POST | `/auth/otp/verify` | public | `email, code` | `{user, accessToken}` like login; 401 `OTP_INVALID`; 429 |
+| POST | `/notifications/read-all` | any | — | `{ok, updated}` |
+| GET | `/notifications/unread` | any | — | now also `unreadMessages` |
+| GET | `/conversations` | any | — | items add `counterpartName, unreadCount, lastMessageAt, lastMessageFromMe` |
+| GET | `/conversations/:id/messages` | participant | — | adds `truncated, limit` (200); send rejects > 5000 chars with 422 `MESSAGE_TOO_LONG` |
+| POST | `/uploads/presign` (direct) | any | as before | `{mode: direct, id, uploadUrl, method, headers, publicUrl, completeUrl, expiresIn}` |
+| POST | `/uploads/:id/complete` | owner | — | `{upload: {id, url, status, contentType, byteSize, filename}, url}`; 409 `UPLOAD_NOT_FOUND`; 422 `UPLOAD_REJECTED`; other users 404 |
+| DELETE | `/uploads/:id` | owner | — | `{ok}`; 409 `UPLOAD_IN_USE` |
+| GET | `/billing/subscription` | any | — | adds `summary {status, planCode, planName, nextChargeAt, currentPeriodEnd, …}`, `history[≤50]`, `testMode` |
+| GET | `/admin/billing-events[/:id]` | admin | `eventType, result, userId, before` | `{events[≤200], nextBefore}` / `{event + payload}` |
+| GET | `/admin/demo-data` | admin | — | `{batches, jobs, busy, demoUsers, maxUsers, sizes}` |
+| POST | `/admin/demo-data` | admin | `size: small\|medium\|large` | 202 `{jobId, job}`; 422 `INVALID_SIZE`/`DEMO_CAP_EXCEEDED`; 409 `DEMO_JOB_RUNNING` |
+| DELETE | `/admin/demo-data[/:batch]` | admin | `demo-*` batch | 202 `{jobId, job}`; 422 `NOT_A_DEMO_BATCH`; 404 |
+| GET | `/admin/demo-data/jobs/:id` | admin | — | `{job}`; 404 |
+| POST | `/dev/razorpay/*` | signed in | — | Exists only with `RAZORPAY_SIMULATOR=true`, a test key and a non-production env; otherwise 404 |
+
+`/admin/billing-attempts/:id/reconcile` now fails closed with 503 `PAYMENTS_NOT_CONFIGURED`.
