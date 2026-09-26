@@ -5,6 +5,8 @@ Rails.application.configure do
   config.force_ssl = true
   config.assume_ssl = true
   config.secret_key_base = ENV.fetch("SECRET_KEY_BASE")
+  # Containers (Railway) collect stdout; a log file inside the container is invisible and lost on redeploy.
+  config.logger = ActiveSupport::TaggedLogging.logger(STDOUT)
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
   config.log_tags = [:request_id]
   # Railway probes /api/live during deploys; keep those probes out of the request log.

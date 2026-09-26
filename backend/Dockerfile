@@ -20,7 +20,7 @@ COPY backend/ .
 
 FROM base
 RUN apt-get update -qq && apt-get install --no-install-recommends -y libpq5 curl gosu && rm -rf /var/lib/apt/lists/*
-ENV RAILS_LOG_TO_STDOUT=true RAILS_SERVE_STATIC_FILES=false
+ENV RAILS_SERVE_STATIC_FILES=false
 COPY --from=build /usr/local/bundle /usr/local/bundle
 COPY --from=build /rails /rails
 RUN useradd rails --create-home --shell /bin/bash \
