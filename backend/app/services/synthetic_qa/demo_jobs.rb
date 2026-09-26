@@ -27,7 +27,8 @@ module SyntheticQa
 
     def active
       ids = AuditLog.where(entity_type: ENTITY).where("created_at > ?", Demo::STALE_AFTER.ago).distinct.pluck(:entity_id)
-      ids.filter_map { find(_1) }.select { ACTIVE_STATES.include?(_1[:state]) }
+      rows = AuditLog.where(entity_type: ENTITY, entity_id: ids).order(:created_at).to_a.group_by(&:entity_id)
+      ids.map { summarize(rows.fetch(_1)) }.select { ACTIVE_STATES.include?(_1[:state]) }
     end
 
     def busy? = active.any?

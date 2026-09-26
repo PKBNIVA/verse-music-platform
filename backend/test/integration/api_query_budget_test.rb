@@ -34,8 +34,7 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
 
   N_PLUS_ONE = {
     "/api/urgent-requests" => "OWNER: urgent-requests — per-row UrgentRequestResponse.exists? and requester.profile (urgent_requests_controller.rb:12; includes(:requester) lacks :profile)",
-    "/api/talent-folders" => "OWNER: talent-folders — per-folder talent_folder_members.count (talent_folders_controller.rb:3)",
-    "/api/admin/demo-data" => "OWNER: demo-data — GET /api/admin/demo-data runs one AuditLog query per demo job recorded in the last 30 min (SyntheticQa::DemoJobs.active calls find per id, demo_jobs.rb:29-31; busy? via index)"
+    "/api/talent-folders" => "OWNER: talent-folders — per-folder talent_folder_members.count (talent_folders_controller.rb:3)"
   }.freeze
 
   UNBOUNDED = {
@@ -43,7 +42,6 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
     "/api/applications" => "OWNER: applications — applications_controller.rb:4 returns every application",
     "/api/job-alerts" => "OWNER: job-alerts — job_alerts_controller.rb:4 returns every alert",
     "/api/employer/applications" => "OWNER: employer-applications — employer/applications_controller.rb:5 returns every application (with candidate emails)",
-    "/api/portfolio" => "OWNER: portfolio — portfolio_controller.rb:4 returns every item",
     "/api/reviews" => "OWNER: reviews — reviews_controller.rb:5 returns every published review",
     "/api/resources" => "OWNER: resources — resources_controller.rb:2 returns every published resource",
     "/api/employers" => "OWNER: talent — talent_controller.rb:76 returns every active employer to any signed-in user",

@@ -208,10 +208,6 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
       "OWNER: bookings — a non-party gets 409 'Invalid booking status change' instead of 404 (bookings_controller.rb:42 finds the booking without a party scope: existence oracle)"],
     "POST /api/organizations" => [:bad,
       "OWNER: organizations — POST /api/organizations {name: \"\"} creates a nameless workspace (201); Organization has no name presence validation"],
-    "PATCH /api/portfolio/{portfolio}" => [:allowed,
-      "OWNER: portfolio — partial update without `type` fails 422 'Kind can't be blank' (portfolio_controller.rb:28 always assigns kind = params[:type])"],
-    "PUT /api/portfolio/{portfolio}" => [:allowed,
-      "OWNER: portfolio — update without `type` fails 422 'Kind can't be blank' (portfolio_controller.rb:28)"],
     "DELETE /api/talent-folders/{folder}" => [:allowed,
       "OWNER: talent-folders — deleting a folder with members is 500 PG::SyntaxError (TalentFolderMember has no primary key; dependent: :destroy issues WHERE \"\" = NULL)"]
   }.freeze
