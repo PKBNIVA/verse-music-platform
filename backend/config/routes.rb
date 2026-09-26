@@ -58,6 +58,8 @@ Rails.application.routes.draw do
     get "search/status", to: "search#status"
     post "uploads/presign", to: "uploads#presign"
     put "uploads/local", to: "uploads#local"
+    post "uploads/:id/complete", to: "uploads#complete", as: :complete_upload
+    delete "uploads/:id", to: "uploads#destroy", as: :upload
     get "public/talent", to: "talent#public_index"
     get "public/talent/:id", to: "talent#public_show"
     get "candidates", to: "talent#index"

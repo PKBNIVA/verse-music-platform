@@ -20,6 +20,11 @@ Rails.application.configure do
       cron: "7,37 * * * *",
       class: "BillingReconciliationJob",
       description: "Reconcile or expire stuck billing attempts and unissued booking payments"
+    },
+    upload_sweep: {
+      cron: "43 4 * * *",
+      class: "UploadSweepJob",
+      description: "Delete stale pending uploads, unused or ownerless uploads, and orphaned bucket objects"
     }
   }
 end

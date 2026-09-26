@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_09_26_000000) do
+ActiveRecord::Schema[7.2].define(version: 2026_09_26_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "citext"
   enable_extension "pg_trgm"
@@ -724,6 +724,24 @@ ActiveRecord::Schema[7.2].define(version: 2026_09_26_000000) do
     t.index ["employer_id"], name: "index_talent_shortlists_on_employer_id"
   end
 
+  create_table "uploads", id: :string, force: :cascade do |t|
+    t.string "user_id"
+    t.string "storage", null: false
+    t.string "key", null: false
+    t.string "filename", null: false
+    t.string "content_type", null: false
+    t.bigint "byte_size", null: false
+    t.string "status", default: "pending", null: false
+    t.string "public_url"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["public_url"], name: "index_uploads_on_public_url"
+    t.index ["status", "created_at"], name: "index_uploads_on_status_and_created_at"
+    t.index ["storage", "key"], name: "index_uploads_on_storage_and_key", unique: true
+    t.index ["user_id", "status"], name: "index_uploads_on_user_id_and_status"
+  end
+
   create_table "urgent_request_responses", id: false, force: :cascade do |t|
     t.string "urgent_request_id", null: false
     t.string "user_id", null: false
@@ -842,6 +860,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_09_26_000000) do
   add_foreign_key "talent_folders", "users", column: "owner_id"
   add_foreign_key "talent_shortlists", "users", column: "candidate_id"
   add_foreign_key "talent_shortlists", "users", column: "employer_id"
+  add_foreign_key "uploads", "users", on_delete: :nullify
   add_foreign_key "urgent_request_responses", "urgent_requests"
   add_foreign_key "urgent_request_responses", "users"
   add_foreign_key "urgent_requests", "users", column: "requester_id"
