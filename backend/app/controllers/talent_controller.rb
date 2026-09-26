@@ -80,8 +80,9 @@ class TalentController < ApplicationController
 
   def public_scope = User.discoverable_talent.includes(:profile, :portfolio_items)
 
-  # Browse/search listings hide synthetic QA accounts from real users; synthetic viewers still see them.
-  def listing_scope = current_user&.synthetic_batch.present? ? public_scope : public_scope.organic
+  # Browse/search listings hide synthetic QA accounts from real users (except badged demo-* batches);
+  # synthetic viewers still see every batch.
+  def listing_scope = current_user&.synthetic_batch.present? ? public_scope : SyntheticQa::Demo.publicly_listed(public_scope)
 
   def filter(scope)
     if params[:q].present?

@@ -29,6 +29,7 @@ class Job < ApplicationRecord
       "screeningQuestions" => screening_questions,
       "employerName" => employer.name,
       "employerVerified" => employer.profile&.verified || false,
+      "demo" => SyntheticQa::Demo.user?(employer),
       "applicationsCount" => applications_count,
       "createdAt" => created_at,
       "updatedAt" => updated_at

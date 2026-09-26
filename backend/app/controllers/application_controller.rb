@@ -64,6 +64,7 @@ class ApplicationController < ActionController::API
 
   def public_profile(user)
     public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone", "synthetic_batch")
+      .merge("demo" => SyntheticQa::Demo.user?(user))
   end
 
   def public_employer(user)

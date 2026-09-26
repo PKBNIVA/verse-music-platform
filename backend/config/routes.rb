@@ -45,6 +45,11 @@ Rails.application.routes.draw do
       post "billing-attempts/:id/reconcile", to: "operations#reconcile_billing_attempt"
       get :bookings, to: "operations#bookings"
       post "search/reindex", to: "search#reindex"
+      get "demo-data", to: "demo_data#index"
+      post "demo-data", to: "demo_data#create"
+      delete "demo-data", to: "demo_data#destroy_all"
+      get "demo-data/jobs/:id", to: "demo_data#job_status"
+      delete "demo-data/:batch", to: "demo_data#destroy"
     end
 
     resources :portfolio, only: %i[index create update destroy], controller: "portfolio"

@@ -14,7 +14,7 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
   test "professional and employer complete discovery application messaging booking payment and workspace flows" do
     candidate = User.synthetic(BATCH).jobseeker.first
     candidate_token = login(candidate.email)
-    other_job = Job.where(employer_id: User.synthetic(BATCH).employer.select(:id)).where.not(id: candidate.applications.select(:job_id)).first!
+    other_job = Job.published.where(employer_id: User.synthetic(BATCH).employer.select(:id)).where.not(id: candidate.applications.select(:job_id)).first!
     employer = other_job.employer
     employer_token = login(employer.email)
 
