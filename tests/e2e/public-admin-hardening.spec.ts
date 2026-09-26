@@ -121,6 +121,46 @@ test.describe('admin console', () => {
     expect(calls.some(call => call.method === 'POST' && call.path === '/api/admin/billing-attempts/bill-1/reconcile')).toBe(true);
   });
 
+  test('sign-in doctor diagnoses an account and can revoke its sessions', async ({page}) => {
+    let active = 3;
+    const calls = await mockApi(page, {
+      ...adminFixtures(),
+      '/api/admin/users/lookup': () => ({body: {
+        email: 'asha@example.invalid', exists: true, emailProviderConfigured: false,
+        user: {id: 'u-1', name: 'Asha Rao', role: 'jobseeker', status: 'suspended', emailVerified: false, profileComplete: true, passwordSet: true, createdAt: '2026-09-01T00:00:00Z', lastLoginAt: null},
+        sessions: {active, createdLast7Days: 4, cap: 10},
+        emailTokens: [{purpose: 'reset_password', createdAt: '2026-09-20T00:00:00Z', used: false, expired: false}],
+        recentAuthEvents: [{action: 'auth.login', at: '2026-09-19T00:00:00Z', ip: '203.0.x.x'}],
+        recentFailedLogins: {count: 2, windowMinutes: 15},
+        diagnosis: [{level: 'error', code: 'ACCOUNT_SUSPENDED', message: 'Account is suspended.'}, {level: 'error', code: 'EMAIL_UNDELIVERABLE', message: '1 password reset(s) requested but no email provider is configured.'}],
+      }}),
+      'POST /api/admin/users/u-1/revoke-sessions': () => { const revoked = active; active = 0; return {body: {ok: true, revoked}}; },
+    }, admin);
+    await page.goto('/admin');
+    await page.getByRole('tab', {name: 'Sign-in doctor'}).click();
+    await page.getByLabel('Account email').fill('  Asha@Example.invalid ');
+    await page.getByRole('button', {name: 'Diagnose'}).click();
+    const result = page.getByTestId('signin-doctor-result');
+    await expect(result).toContainText('Account is suspended.');
+    await expect(result).toContainText('no email provider is configured');
+    await expect(result).toContainText('203.0.x.x');
+    expect(calls.find(call => call.path === '/api/admin/users/lookup')).toBeTruthy();
+    const lookupUrl = await page.evaluate(() => performance.getEntriesByType('resource').map(e => e.name).find(n => n.includes('/admin/users/lookup')));
+    expect(lookupUrl).toContain('email=Asha%40Example.invalid');
+    await page.getByRole('button', {name: /Sign out of all 3 session/}).click();
+    await expect(page.getByText('Signed out of 3 session(s)')).toBeVisible();
+    await expect(page.getByRole('button', {name: /Sign out of all/})).toHaveCount(0);
+  });
+
+  test('sign-in doctor reports an unknown email', async ({page}) => {
+    await mockApi(page, {...adminFixtures(), '/api/admin/users/lookup': {body: {email: 'nobody@example.invalid', exists: false, diagnosis: [{level: 'error', code: 'NO_ACCOUNT', message: 'No account uses this email.'}]}}}, admin);
+    await page.goto('/admin');
+    await page.getByRole('tab', {name: 'Sign-in doctor'}).click();
+    await page.getByLabel('Account email').fill('nobody@example.invalid');
+    await page.keyboard.press('Enter');
+    await expect(page.getByTestId('signin-doctor-result')).toContainText('No account uses this email.');
+  });
+
   test('admin console fits a phone screen', async ({page}, testInfo) => {
     await page.setViewportSize({width: 390, height: 844});
     await mockApi(page, adminFixtures(), admin);

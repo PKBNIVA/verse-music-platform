@@ -32,8 +32,12 @@ Rails.application.routes.draw do
       get :health, to: "health#show"
       get :stats, to: "stats#index"
       get :tester, to: "tester#index"
+      get "users/lookup", to: "users#lookup"
       resources :users, only: %i[index update] do
-        member { post :grant_plan, path: "grant-plan" }
+        member do
+          post :grant_plan, path: "grant-plan"
+          post :revoke_sessions, path: "revoke-sessions"
+        end
       end
       resources :jobs, only: %i[index update]
       resources :reviews, only: %i[index update]
