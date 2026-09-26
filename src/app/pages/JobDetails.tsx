@@ -15,7 +15,7 @@ const title=(x:string)=>String(x||'').replace(/(^|\s)\S/g,m=>m.toUpperCase());
 export default function JobDetails(){const{id}=useParams(),nav=useNavigate(),{user}=useAuth();
 const[job,setJob]=useState<any>(),[cover,setCover]=useState(''),[answers,setAnswers]=useState<Record<number,string>>({}),[busy,setBusy]=useState(false);
 const load=()=>apiGet<any>(`/jobs/${id}`).then(d=>setJob(d.job)).catch((e:any)=>toast.error(e.message));
-useEffect(load,[id]);
+useEffect(()=>{load()},[id]);
 async function messageEmployer(){try{const d=await apiPost<any>('/conversations',{jobId:id});
 nav(`/jobseeker/messages?conversation=${d.conversation.id}`)}catch(e:any){toast.error(e.message)}}async function apply(){setBusy(true);
 try{await apiPost(`/jobs/${id}/apply`,{coverLetter:cover,screeningAnswers:(job.screeningQuestions||[]).map((q:string,i:number)=>`${q} :: ${answers[i]||''}`)});
