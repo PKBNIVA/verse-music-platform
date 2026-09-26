@@ -44,6 +44,7 @@ class EmailDelivery
   rescue StandardError => error
     raise if raise_errors
     Rails.logger.error("email delivery failed: #{error.class}")
+    ErrorReporter.capture(error, tags: { source: "email_delivery_failed", template: })
     { delivered: false, reason: "delivery error" }
   end
 
@@ -157,6 +158,7 @@ class EmailDelivery
   rescue StandardError => error
     raise if raise_errors
     Rails.logger.error("notification email delivery failed: #{error.class}")
+    ErrorReporter.capture(error, tags: { source: "notification_email_delivery_failed", template: })
     { delivered: false, reason: "delivery error" }
   end
 

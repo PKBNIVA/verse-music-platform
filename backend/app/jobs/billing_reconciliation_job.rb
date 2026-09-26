@@ -42,6 +42,7 @@ class BillingReconciliationJob < ApplicationJob
       rescue RazorpayGateway::GatewayError, ArgumentError, ActiveRecord::RecordNotFound => error
         attempt.update!(error_code: error.is_a?(RazorpayGateway::GatewayError) ? error.code : "reconcile_failed", error_message: error.message.first(500), last_attempted_at: @now)
         Rails.logger.warn("billing reconciliation failed attempt=#{attempt.id} error=#{error.class}")
+        ErrorReporter.capture(error, tags: { source: "billing_reconciliation_failed" }, level: :warning, billingAttemptId: attempt.id)
         false
       end
     end
@@ -67,6 +68,7 @@ class BillingReconciliationJob < ApplicationJob
             # Confirmed absent at Razorpay: fail it once it is old enough.
           rescue RazorpayGateway::GatewayError, ArgumentError, ActiveRecord::RecordNotFound => error
             attempt.update!(error_code: error.is_a?(RazorpayGateway::GatewayError) ? error.code : "reconcile_failed", error_message: error.message.first(500), last_attempted_at: @now)
+            ErrorReporter.capture(error, tags: { source: "billing_reconciliation_failed" }, level: :warning, billingAttemptId: attempt.id)
             next false if error.is_a?(RazorpayGateway::GatewayError)
           end
         end

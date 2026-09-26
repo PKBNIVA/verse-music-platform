@@ -79,6 +79,7 @@ module Billing
         RazorpayGateway.new.cancel_subscription(provider_sub["id"]) if provider_sub&.key?("id") && !error.ambiguous?
       rescue RazorpayGateway::GatewayError => cleanup_error
         Rails.logger.error("razorpay checkout cleanup failed: #{cleanup_error.class}")
+        ErrorReporter.capture(cleanup_error, tags: { source: "razorpay_checkout_cleanup_failed" })
       end
       render_error(error.ambiguous? ? "Billing provider outcome is pending reconciliation. Do not retry with a new request." : error.message, :bad_gateway)
     end

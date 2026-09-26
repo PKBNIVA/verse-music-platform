@@ -248,6 +248,7 @@ class AuthController < ApplicationController
   rescue StandardError => error
     # The response must not differ, so a queueing failure is only logged.
     Rails.logger.error({ event: "email_enqueue_failed", template: "sign_in_code", error: error.class.name }.to_json)
+    ErrorReporter.capture(error, tags: { source: "email_enqueue_failed", template: "sign_in_code" })
   end
 
   def login_failure_scopes(email)
@@ -282,6 +283,7 @@ class AuthController < ApplicationController
   rescue StandardError => error
     # The account/token already exists; report the failure instead of a 500.
     Rails.logger.error({ event: "email_enqueue_failed", template:, error: error.class.name }.to_json)
+    ErrorReporter.capture(error, tags: { source: "email_enqueue_failed", template: })
     { queued: false, delivered: false, reason: "delivery error" }
   end
 

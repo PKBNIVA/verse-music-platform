@@ -11,6 +11,7 @@ class DemoDataSeedJob < ApplicationJob
     SyntheticQa::DemoJobs.record!(job_id, "succeeded", actor_id: admin_id, result: result.to_h.except(:batch))
   rescue StandardError => error
     Rails.logger.error({ event: "demo_data.seed_failed", jobId: job_id, batch:, error: error.class.name }.to_json)
+    ErrorReporter.capture(error, tags: { source: "demo_data.seed_failed", job_class: self.class.name, job_id: })
     SyntheticQa::DemoJobs.record!(job_id, "failed", actor_id: admin_id, error: error.message.first(300))
   end
 end

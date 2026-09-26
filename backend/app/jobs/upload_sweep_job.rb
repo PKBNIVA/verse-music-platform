@@ -28,6 +28,7 @@ class UploadSweepJob < ApplicationJob
   rescue StandardError => error
     counts[:errors] += 1
     Rails.logger.warn({ event: "upload_sweep_failed", uploadId: upload.id, error: error.class.name }.to_json)
+    ErrorReporter.capture(error, tags: { source: "upload_sweep_failed" }, level: :warning, uploadId: upload.id)
   end
 
   def sweep_bucket(cutoff, counts)

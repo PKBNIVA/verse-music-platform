@@ -30,6 +30,7 @@ Rails.application.routes.draw do
     end
     namespace :admin do
       get :health, to: "health#show"
+      post "health/sentry-test", to: "health#sentry_test"
       get :stats, to: "stats#index"
       get :tester, to: "tester#index"
       get "users/lookup", to: "users#lookup"
