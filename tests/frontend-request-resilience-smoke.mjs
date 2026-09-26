@@ -3,7 +3,12 @@ import { readFile } from 'node:fs/promises';
 import { transform } from 'esbuild';
 
 const source = await readFile(new URL('../src/app/lib/api.ts', import.meta.url), 'utf8');
-const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'es2022' });
+const { code: transformed } = await transform(source, { loader: 'ts', format: 'esm', target: 'es2022' });
+// The module is imported from a data: URL, so its relative import of the (DSN-less, inert)
+// error-reporting module must be made absolute.
+const monitoringUrl = new URL('../src/app/lib/monitoring.ts', import.meta.url).href;
+const code = transformed.replace(/from "\.\/monitoring"/, `from ${JSON.stringify(monitoringUrl)}`);
+assert.notEqual(code, transformed, 'api.ts imports ./monitoring');
 
 const fakeStorage = () => {
   const storage = new Map();

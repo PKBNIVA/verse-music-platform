@@ -10,7 +10,7 @@ module ErrorScrubber
 
   # Hash keys whose values are never sent. Matched against the key name.
   SENSITIVE_KEY = /pass(word|wd)?|token|secret|signature|otp|authorization|cookie|api[_-]?key|access[_-]?key|private[_-]?key|credential|session|email|\A(code|body|dsn)\z/i
-  EMAIL = /[A-Za-z0-9._%+\-]+@[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}/
+  EMAIL = /[A-Za-z0-9._%+\-]+(?:@|%40)[A-Za-z0-9\-]+(?:\.[A-Za-z0-9\-]+)*\.[A-Za-z]{2,}/i
   AUTH_SCHEME = /\b(Bearer|Basic|Token)\s+[A-Za-z0-9\-._~+\/=]+/i
   # ?token=…, &reset_token=…, &code=…, &signature=… etc. in URLs and query strings.
   QUERY_SECRET = /((?:\A|[?&;\s"'])[\w\-\[\]]*(?:token|code|otp|secret|signature|password|email|key)[\w\-\[\]]*=)[^&#\s"'<>]*/i

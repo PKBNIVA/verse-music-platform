@@ -1,3 +1,5 @@
+import { reportApiFailure } from './monitoring';
+
 export const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -203,6 +205,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       if (response.status === 401) redirectAfterUnauthorized(path, token, skipAuthRedirect);
       if (!response.ok) {
         if (response.status === 402 && PLAN_LIMIT_CODES.has(data.code)) announcePlanLimit(data.error);
+        if (response.status >= 500) reportApiFailure({ status: response.status, code: data.code, method, path, requestId });
         throw new ApiError(data.error || `Request failed (${response.status})`, response.status, data.code, requestId);
       }
       return data;
@@ -210,6 +213,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       if (error instanceof ApiError) throw error;
       if (signal?.aborted) throw error;
       if (error instanceof RequestDeadlineError) {
+        reportApiFailure({ status: 0, code: 'REQUEST_TIMEOUT', method, path });
         throw new ApiError('Request timed out. Please try again.', 0, 'REQUEST_TIMEOUT');
       }
       if (canRetry && attempt === 0) {
@@ -220,6 +224,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
         }
       }
       const timedOut = error instanceof DOMException && error.name === 'AbortError';
+      reportApiFailure({ status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR', method, path });
       throw new ApiError(
         timedOut ? 'Request timed out. Please try again.' : 'Network request failed. Check your connection and try again.',
         0,

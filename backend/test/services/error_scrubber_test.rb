@@ -28,6 +28,10 @@ class ErrorScrubberTest < ActiveSupport::TestCase
     assert_equal "verify_email", clean["template"]
   end
 
+  test "URL-encoded email addresses are scrubbed too" do
+    assert_equal "/lookup?q=[email]&x=1", ErrorScrubber.scrub_string("/lookup?q=Jane.Doe%40Example.com&x=1")
+  end
+
   test "query strings are scrubbed without a leading question mark" do
     assert_equal "token=[Filtered]&page=1", ErrorScrubber.scrub_query("token=abc&page=1")
     assert_equal "", ErrorScrubber.scrub_query("")

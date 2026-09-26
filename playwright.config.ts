@@ -2,6 +2,7 @@ import {defineConfig, devices} from '@playwright/test';
 
 const liveBaseUrl = process.env.QA_BASE_URL?.replace(/\/$/, '');
 const fullMatrix = process.env.QA_FULL_MATRIX === 'true';
+const integrationRun = process.env.QA_INTEGRATION === 'true';
 
 const browserProjects = [
   {
@@ -60,10 +61,29 @@ export default defineConfig({
   ],
   webServer: liveBaseUrl
     ? undefined
-    : {
-        command: 'npm run build && npm exec vite preview -- --host 127.0.0.1 --port 4173',
-        url: 'http://127.0.0.1:4173',
-        reuseExistingServer: !process.env.CI,
-        timeout: 120_000,
-      },
+    : [
+        {
+          command: 'npm run build && npm exec vite preview -- --host 127.0.0.1 --port 4173',
+          url: 'http://127.0.0.1:4173',
+          reuseExistingServer: !process.env.CI,
+          timeout: 120_000,
+        },
+        // error-monitoring.spec.ts only (skipped in integration runs): a local stand-in for
+        // Sentry's ingest endpoint, and the app built with a fake DSN pointing at it.
+        ...(integrationRun ? [] : [
+          {
+            command: 'node tests/e2e/support/sentry-sink.mjs 4175',
+            url: 'http://127.0.0.1:4175',
+            reuseExistingServer: !process.env.CI,
+            timeout: 30_000,
+          },
+          {
+            command: 'npm exec vite build -- --outDir dist-qa-sentry && npm exec vite preview -- --outDir dist-qa-sentry --host 127.0.0.1 --port 4174',
+            url: 'http://127.0.0.1:4174',
+            env: {VITE_SENTRY_DSN: 'http://qapublickey@127.0.0.1:4175/1', VITE_SENTRY_ENVIRONMENT: 'qa', VITE_RELEASE: 'qa-sentry-build'},
+            reuseExistingServer: !process.env.CI,
+            timeout: 120_000,
+          },
+        ]),
+      ],
 });
