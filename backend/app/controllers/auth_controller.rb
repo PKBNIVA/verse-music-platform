@@ -1,6 +1,9 @@
 class AuthController < ApplicationController
   LOGIN_FAILURE_PERIOD = 15.minutes
-  LOGIN_FAILURES_PER_EMAIL = 10
+  # Strict budget per (email, IP) pair; a looser global per-email budget still
+  # stops distributed guessing without letting one attacker lock a user out.
+  LOGIN_FAILURES_PER_EMAIL_AND_IP = 10
+  LOGIN_FAILURES_PER_EMAIL = 100
   LOGIN_FAILURES_PER_IP = 50
   MAX_LIVE_SESSIONS = 10
   PRODUCTION_FRONTEND_URL = "https://verse-music-platform.vercel.app".freeze
@@ -114,7 +117,11 @@ class AuthController < ApplicationController
   def normalized_email = params[:email].to_s.strip.downcase
 
   def login_failure_scopes(email)
-    { email: [email, LOGIN_FAILURES_PER_EMAIL], ip: [request.remote_ip, LOGIN_FAILURES_PER_IP] }
+    {
+      email_ip: [email.presence && "#{email}|#{request.remote_ip}", LOGIN_FAILURES_PER_EMAIL_AND_IP],
+      email: [email, LOGIN_FAILURES_PER_EMAIL],
+      ip: [request.remote_ip, LOGIN_FAILURES_PER_IP]
+    }
   end
 
   def token_response(token, path, user)

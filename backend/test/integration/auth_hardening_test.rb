@@ -18,36 +18,47 @@ class AuthHardeningTest < ActionDispatch::IntegrationTest
     Rails.cache = @original_cache
   end
 
-  test "failed logins are throttled per email even with the correct password afterwards" do
-    AuthController::LOGIN_FAILURES_PER_EMAIL.times do
-      login("target@example.com", "wrong-password")
+  test "failed logins are throttled per email and IP even with the correct password afterwards" do
+    AuthController::LOGIN_FAILURES_PER_EMAIL_AND_IP.times do
+      login("target@example.com", "wrong-password", ip: "198.51.100.1")
       assert_response :unauthorized
     end
 
-    login(" TARGET@example.com ", PASSWORD)
+    login(" TARGET@example.com ", PASSWORD, ip: "198.51.100.1")
     assert_response :too_many_requests
     assert_equal "Too many requests. Try again later.", response.parsed_body["error"]
 
     User.create!(name: "Other", email: "other@example.com", password: PASSWORD, role: "jobseeker", status: "active")
-    login("other@example.com", PASSWORD)
+    login("other@example.com", PASSWORD, ip: "198.51.100.1")
     assert_response :success
   end
 
-  test "per-email throttle applies across IP addresses and resets after the window" do
-    AuthController::LOGIN_FAILURES_PER_EMAIL.times do |index|
-      login("target@example.com", "wrong-password", ip: "10.0.0.#{index + 1}")
+  test "an attacker exhausting their email and IP budget does not lock out the real user elsewhere" do
+    (AuthController::LOGIN_FAILURES_PER_EMAIL_AND_IP + 5).times do
+      login("target@example.com", "wrong-password", ip: "198.51.100.66")
     end
-    login("target@example.com", PASSWORD, ip: "10.0.1.1")
+    assert_response :too_many_requests
+
+    login("target@example.com", PASSWORD, ip: "192.0.2.10")
+    assert_response :success
+  end
+
+  test "global per-email budget stops distributed guessing and resets after the window" do
+    AuthController::LOGIN_FAILURES_PER_EMAIL.times do |index|
+      login("target@example.com", "wrong-password", ip: "10.0.#{index / 200}.#{index % 200 + 1}")
+      assert_response :unauthorized
+    end
+    login("target@example.com", PASSWORD, ip: "192.0.2.10")
     assert_response :too_many_requests
 
     travel AuthController::LOGIN_FAILURE_PERIOD + 1.second do
-      login("target@example.com", PASSWORD, ip: "10.0.1.1")
+      login("target@example.com", PASSWORD, ip: "192.0.2.10")
       assert_response :success
     end
   end
 
   test "successful logins do not consume the login budget" do
-    (AuthController::LOGIN_FAILURES_PER_EMAIL + 15).times do
+    (AuthController::LOGIN_FAILURES_PER_IP + 5).times do
       login("target@example.com", PASSWORD)
       assert_response :success
     end
