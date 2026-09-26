@@ -138,6 +138,9 @@ class AuthorizationIntegrityTest < ActionDispatch::IntegrationTest
   end
 
   test "conversation creation and message sending are rate limited per user" do
+    # The test environment uses :null_store; rate counters need a real cache.
+    original_cache = Rails.cache
+    Rails.cache = ActiveSupport::Cache::MemoryStore.new
     employer = create_user("Chatty Employer", "employer")
     candidate = create_user("Chatty Candidate", "jobseeker")
     conversation = Conversation.create!(candidate:, employer:)
@@ -162,6 +165,8 @@ class AuthorizationIntegrityTest < ActionDispatch::IntegrationTest
     end
     post "/api/conversations", params: { employerId: employer.id }, headers: auth(candidate), as: :json
     assert_response :too_many_requests
+  ensure
+    Rails.cache = original_cache
   end
 
   test "inbox orders by latest message and message history is capped to the newest" do
