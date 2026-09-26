@@ -1,4 +1,5 @@
 class JobsController < ApplicationController
+  include JobAuthoring
   FILTER_PARAMS = %i[q location kind function workplace experience paid verified].freeze
   LIST_LIMIT = 200
 
@@ -37,11 +38,23 @@ class JobsController < ApplicationController
 
   def create
     return unless authenticate!("jobseeker", "employer")
-    if params[:status] != "draft" && current_user.jobs.where(status: %w[pending published]).count >= active_post_limit
-      return render_error("Your plan limit has been reached. Upgrade to continue.", :payment_required, "PLAN_LIMIT")
+    return unless require_scalar_params!(:status, :company)
+    draft = params[:status] == "draft"
+    attributes = job_params(defaults: true)
+    flags = moderation_flags_for(attributes)
+    job = current_user.jobs.build(attributes.merge(status: draft ? "draft" : "pending", company: params[:company].presence || current_user.profile&.company_name || current_user.name, moderation_note: flags.join("; ").presence))
+    return render_error(job.errors.full_messages.to_sentence, :unprocessable_entity) unless job.valid?
+    if !draft && (error = submission_error(job))
+      return render_error(error, :unprocessable_entity)
     end
-    flags = moderation_flags
-    job = current_user.jobs.create!(job_params.merge(status: params[:status] == "draft" ? "draft" : "pending", company: params[:company].presence || current_user.profile&.company_name || current_user.name, moderation_note: flags.join("; ").presence))
+    Job.transaction do
+      if !draft && (limit_error = active_post_limit_error)
+        render_error(limit_error, :payment_required, "PLAN_LIMIT")
+        raise ActiveRecord::Rollback
+      end
+      job.save!
+    end
+    return if performed?
     audit!("job.create", job)
     render json: { id: job.id, status: job.status, moderationFlags: flags }, status: :created
   end
@@ -87,34 +100,5 @@ class JobsController < ApplicationController
     return unless authenticate!("jobseeker")
     SavedJob.where(user: current_user, job_id: params[:id]).delete_all
     render json: { ok: true }
-  end
-
-  private
-
-  def job_params
-    raw = params.permit(:title, :location, :type, :genre, :salary, :description, :requirements, :experienceLevel,
-      :opportunityKind, :functionArea, :workplace, :compensationMin, :compensationMax, :currency,
-      :compensationPeriod, :paid, :applicationDeadline, :startDate, :duration, :portfolioRequired, :slots,
-      skills: [], languages: [], screeningQuestions: []).to_h
-    mapped = raw.transform_keys { _1.underscore }
-    mapped["kind"] = mapped.delete("type") || "Project-based"
-    mapped["genre"] = "Multi-genre" if mapped["genre"].blank?
-    mapped["opportunity_kind"] ||= "job"
-    mapped["workplace"] ||= "onsite"
-    mapped["currency"] ||= "INR"
-    mapped
-  end
-
-  def active_post_limit
-    Entitlements.for(current_user).limit(:active_posts)
-  end
-
-  def moderation_flags
-    text = [params[:title], params[:description], params[:requirements]].join(" ").downcase
-    flags = []
-    flags << "Potential off-platform or fee language" if text.match?(/whatsapp|telegram|pay.*fee|registration fee|security deposit/)
-    flags << "Compensation not disclosed" if params[:salary].blank? && params[:compensationMin].blank? && params[:compensationMax].blank?
-    flags << "Description is very short" if params[:description].to_s.length < 80
-    flags
   end
 end

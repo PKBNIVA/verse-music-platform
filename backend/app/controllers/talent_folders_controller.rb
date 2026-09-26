@@ -1,16 +1,25 @@
 class TalentFoldersController < ApplicationController
+  include ScalarParams
+  LIST_LIMIT = 200
   before_action -> { authenticate!("jobseeker", "employer") }
-  def index = render(json: { folders: TalentFolder.where(owner: current_user).order(updated_at: :desc).map { _1.attributes.merge(count: _1.talent_folder_members.count) } })
+  def index
+    folders = TalentFolder.where(owner: current_user).order(updated_at: :desc).limit(LIST_LIMIT).to_a
+    counts = TalentFolderMember.where(talent_folder_id: folders.map(&:id)).group(:talent_folder_id).count
+    render json: { folders: folders.map { _1.attributes.merge(count: counts.fetch(_1.id, 0)) } }
+  end
+
   def create
+    return unless require_scalar_params!(:name, :description)
     folder = TalentFolder.create!(owner: current_user, name: params[:name], description: params[:description]); render json: { id: folder.id }, status: :created
   end
   def show
     folder = TalentFolder.where(owner: current_user).find(params[:id])
     # Profiles that stopped being discoverable (suspended, hidden, incomplete) drop out of folders.
-    members = folder.talent_folder_members.where(candidate_id: User.discoverable_talent.select(:id)).includes(candidate: :profile)
+    members = folder.talent_folder_members.where(candidate_id: User.discoverable_talent.select(:id)).includes(candidate: :profile).limit(LIST_LIMIT)
     render json: { folder:, candidates: members.map { public_profile(_1.candidate).merge(note: _1.note) } }
   end
   def add_candidate
+    return unless require_scalar_params!(:note)
     folder = TalentFolder.where(owner: current_user).find(params[:id])
     candidate = User.discoverable_talent.find(params[:candidateId].to_s)
     members = folder.talent_folder_members.where(candidate_id: candidate.id)

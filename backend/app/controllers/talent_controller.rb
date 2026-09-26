@@ -1,5 +1,9 @@
 class TalentController < ApplicationController
+  include ScalarParams
+  LIST_LIMIT = 200
+
   def public_index
+    return unless require_scalar_params!(:q, :location, :role, :instrument, :verified, :remoteRecording)
     scope = listing_scope
     scope = filter(scope)
     render json: { talent: scope.limit(100).map { public_profile(_1) } }
@@ -12,6 +16,7 @@ class TalentController < ApplicationController
 
   def index
     return unless authenticate!("jobseeker", "employer")
+    return unless require_scalar_params!(:q, :location, :role, :instrument, :verified, :remoteRecording)
     shortlisted = TalentShortlist.where(employer: current_user).pluck(:candidate_id).to_set
     render json: { candidates: filter(listing_scope).limit(100).map { public_profile(_1).merge(shortlisted: shortlisted.include?(_1.id)) } }
   end
@@ -25,7 +30,8 @@ class TalentController < ApplicationController
 
   def compare
     return unless authenticate!("jobseeker", "employer")
-    ids = params[:ids].to_s.split(",").uniq.first(4)
+    return unless require_scalar_params!(:ids)
+    ids = params[:ids].to_s.split(",").map(&:strip).reject(&:blank?).uniq.first(4)
     return render_error("Choose at least two professionals to compare.", :bad_request) if ids.length < 2
     professionals = public_scope.where(id: ids).map do |candidate|
       availability = AvailabilityWindow.where(user: candidate, status: "available").where("end_at > ?", Time.current).order(:start_at).limit(5).map do |window|
@@ -41,6 +47,7 @@ class TalentController < ApplicationController
 
   def shortlist
     return unless authenticate!("jobseeker", "employer")
+    return unless require_scalar_params!(:note)
     candidate = public_scope.find(params[:id])
     TalentShortlist.transaction do
       current_user.lock!
@@ -73,7 +80,7 @@ class TalentController < ApplicationController
 
   def employers
     return unless authenticate!
-    render json: { employers: User.employer.active.includes(:profile).map { public_employer(_1) } }
+    render json: { employers: User.employer.active.includes(:profile).order(:name).limit(LIST_LIMIT).map { public_employer(_1) } }
   end
 
   private

@@ -1,10 +1,14 @@
 module Employer
   class ApplicationsController < ApplicationController
+    include ScalarParams
+    LIST_LIMIT = 200
+
     def index
       return unless authenticate!("jobseeker", "employer")
+      return unless require_scalar_params!(:jobId)
       scope = Application.joins(:job).includes(:job, candidate: :profile).where(jobs: { employer_id: current_user.id })
       scope = scope.where(job_id: params[:jobId]) if params[:jobId].present?
-      rows = scope.order(updated_at: :desc).map do |application|
+      rows = scope.order(updated_at: :desc).limit(LIST_LIMIT).map do |application|
         application.api_json.merge(jobTitle: application.job.title, candidateId: application.candidate_id,
           candidateName: application.candidate.name, candidateEmail: application.candidate.email,
           headline: application.candidate.profile&.headline, candidateLocation: application.candidate.profile&.location,
@@ -18,6 +22,7 @@ module Employer
 
     def update
       return unless authenticate!("jobseeker", "employer")
+      return unless require_scalar_params!(:status, :interviewDate, :recruiterNote, :recruiterRating, :note)
       application = Application.joins(:job).where(jobs: { employer_id: current_user.id }).find(params[:id])
       requested_status = params[:status].presence
       if requested_status

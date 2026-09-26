@@ -25,7 +25,7 @@ Rails.application.routes.draw do
     resources :job_alerts, path: "job-alerts", only: %i[index create update destroy]
 
     namespace :employer do
-      resources :jobs, only: :update
+      resources :jobs, only: %i[index update]
       resources :applications, only: %i[index update]
     end
     namespace :admin do
