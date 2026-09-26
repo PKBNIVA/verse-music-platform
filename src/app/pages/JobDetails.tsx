@@ -1,5 +1,5 @@
 import {useEffect,useState} from 'react';
-import {useNavigate,useParams} from 'react-router';
+import {Link,useNavigate,useParams} from 'react-router';
 import {Navigation} from '../components/Navigation';
 import {Card,CardContent} from '../components/ui/card';
 import {Button} from '../components/ui/button';
@@ -13,9 +13,10 @@ import {Bookmark,BookmarkCheck,Flag,MapPin,ShieldCheck,CalendarDays,Wallet,Brief
 const title=(x:string)=>String(x||'').replace(/(^|\s)\S/g,m=>m.toUpperCase());
 
 export default function JobDetails(){const{id}=useParams(),nav=useNavigate(),{user}=useAuth();
-const[job,setJob]=useState<any>(),[cover,setCover]=useState(''),[answers,setAnswers]=useState<Record<number,string>>({}),[busy,setBusy]=useState(false);
-const load=()=>apiGet<any>(`/jobs/${id}`).then(d=>setJob(d.job)).catch((e:any)=>toast.error(e.message));
-useEffect(()=>{load()},[id]);
+const[job,setJob]=useState<any>(),[cover,setCover]=useState(''),[answers,setAnswers]=useState<Record<number,string>>({}),[busy,setBusy]=useState(false),[loadError,setLoadError]=useState('');
+const load=()=>{setLoadError('');return apiGet<any>(`/jobs/${id}`).then(d=>{if(!d?.job)throw new Error('Opportunity not found');setJob(d.job)}).catch((e:any)=>setLoadError(e?.message||'This opportunity could not be loaded.'))};
+useEffect(()=>{setJob(undefined);load()},[id]);
+const backTo=user?.role==='employer'?'/employer':'/jobseeker/jobs';
 async function messageEmployer(){try{const d=await apiPost<any>('/conversations',{jobId:id});
 nav(`/jobseeker/messages?conversation=${d.conversation.id}`)}catch(e:any){toast.error(e.message)}}async function apply(){setBusy(true);
 try{await apiPost(`/jobs/${id}/apply`,{coverLetter:cover,screeningAnswers:(job.screeningQuestions||[]).map((q:string,i:number)=>`${q} :: ${answers[i]||''}`)});
@@ -26,7 +27,11 @@ if(!reason)return;
 try{await apiPost('/reports',{entityType:'job',entityId:id,reason});
 toast.success('Report sent to moderation')}catch(e:any){toast.error(e.message)}}if(!job)return <div className="min-h-screen bg-slate-950 text-white">
 <Navigation/>
-<div className="pt-32 text-center text-slate-400">Loading opportunity…</div>
+{loadError?<main className="max-w-xl mx-auto px-5 pt-32 pb-16 text-center" role="alert">
+<h1 className="text-2xl font-bold">{/not found/i.test(loadError)?'This opportunity is no longer available':'This opportunity could not be loaded'}</h1>
+<p className="text-slate-400 mt-3">{/not found/i.test(loadError)?'It may have been filled, closed or removed by the employer.':loadError}</p>
+<div className="flex justify-center gap-2 mt-6">{!/not found/i.test(loadError)&&<Button variant="outline" onClick={()=>load()}>Retry</Button>}<Button asChild><Link to={backTo}>Back to opportunities</Link></Button></div>
+</main>:<div className="pt-32 text-center text-slate-400">Loading opportunity…</div>}
 </div>;
 const pay=job.salary||((job.compensation_min||job.compensation_max)?`${job.currency||'INR'} ${job.compensation_min||''}${job.compensation_max?`–${job.compensation_max}`:''}${job.compensation_period?` / ${job.compensation_period}`:''}`:'Not disclosed');
 return <div className="min-h-screen bg-slate-950 text-white">
@@ -109,6 +114,7 @@ return <div className="min-h-screen bg-slate-950 text-white">
 <Textarea value={cover} onChange={e=>setCover(e.target.value)} placeholder="Why this opportunity fits your work and what relevant proof should they review…" className="mt-2 min-h-32 bg-black/20 border-white/15"/>
 <Button className="w-full mt-3" disabled={busy} onClick={apply}>
 <Send size={16} className="mr-2"/>{busy?'Applying…':'Apply now'}</Button>
+{job.portfolioRequired&&<p className="text-xs text-amber-200/90 mt-2">This opportunity requires at least one portfolio item. <Link to="/jobseeker/portfolio" className="underline">Add work samples</Link></p>}
 </>}<Button variant="ghost" className="w-full mt-2" onClick={messageEmployer}>
 <MessageSquare size={16} className="mr-2"/>Ask a question</Button>
 </>}<div className="text-xs text-slate-500 mt-5 pt-4 border-t border-white/10">

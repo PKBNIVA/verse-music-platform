@@ -25,10 +25,11 @@ const fixtures: Record<string, unknown> = {
 
 async function signIn(page: Page, role: Role, me: (attempt: number) => {status: number; body: unknown}) {
   let meCalls = 0;
+  // Seed the stored session once; later navigations (e.g. the forced sign-in redirect) must see what the app left behind.
   await page.addInitScript(() => {
-    if (sessionStorage.getItem('qa_seeded')) return;
-    sessionStorage.setItem('qa_seeded', '1');
-    sessionStorage.setItem('verse_access_token', 'qa-token');
+    if (localStorage.getItem('qa_seeded')) return;
+    localStorage.setItem('qa_seeded', '1');
+    localStorage.setItem('verse_access_token', 'qa-token');
   });
   await page.route('**/api/**', route => {
     const pathname = new URL(route.request().url()).pathname;
@@ -79,7 +80,7 @@ test('an outage while restoring the session keeps the user signed in and offers 
 
   await page.goto('/jobseeker/notifications');
   await expect(page.getByRole('alert')).toContainText("We couldn't reach Verse");
-  expect(await page.evaluate(() => sessionStorage.getItem('verse_access_token'))).toBe('qa-token');
+  expect(await page.evaluate(() => localStorage.getItem('verse_access_token'))).toBe('qa-token');
 
   await page.getByRole('button', {name: 'Try again'}).click();
   await expect(page).toHaveURL(/\/jobseeker\/notifications$/);
@@ -92,7 +93,10 @@ for (const [status, reason] of [[401, 'an expired session'], [403, 'an inactive 
 
     await page.goto('/jobseeker/notifications');
     await expect(page).toHaveURL(/\/auth\/jobseeker$/);
-    expect(await page.evaluate(() => sessionStorage.getItem('verse_access_token'))).toBeNull();
+    // The SPA can reach /auth first and api()'s window.location.replace then reloads the same URL;
+    // an evaluate during that reload throws "Execution context was destroyed". Poll across it.
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('verse_access_token')).catch(() => 'navigating')).toBeNull();
+    await expect(page).toHaveURL(/\/auth\/jobseeker$/);
   });
 }
 
@@ -109,6 +113,7 @@ test('sign-in accepts existing passwords shorter than the registration minimum',
 
   await page.goto('/auth/jobseeker');
   await page.getByLabel('Email').fill('legacy@example.invalid');
+  await page.getByRole('button', {name: 'Use password instead'}).click();
   await page.getByLabel('Password', {exact: true}).fill('short1!');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
 

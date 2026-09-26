@@ -1,7 +1,7 @@
 class PortfolioController < ApplicationController
   before_action -> { authenticate!("jobseeker") }
 
-  def index = render(json: { items: current_user.portfolio_items.order(featured: :desc, sort_order: :asc, created_at: :desc).map(&:api_json) })
+  def index = render(json: { items: current_user.portfolio_items.order(featured: :desc, sort_order: :asc, created_at: :desc).limit(200).map(&:api_json) })
 
   def create
     item = current_user.portfolio_items.create!(item_params)
@@ -25,7 +25,7 @@ class PortfolioController < ApplicationController
   def item_params
     raw = params.permit(:type, :title, :url, :description, :creditedAs, :year, :featured, :thumbnailUrl, :waveformUrl, :sortOrder, :visibility,
       tags: [], genres: [], roles: [], instruments: [], mediaMetadata: {}).to_h.transform_keys { _1.underscore }
-    raw["kind"] = raw.delete("type")
+    raw["kind"] = raw.delete("type") if raw.key?("type")
     raw
   end
 end

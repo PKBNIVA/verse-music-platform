@@ -15,6 +15,15 @@ class BillingAttempt < ApplicationRecord
     update!(state: "succeeded", provider_resource_id:, response_payload:, error_code: nil, error_message: nil, reconciled_at: Time.current)
   end
 
+  STALE_AFTER = 30.minutes
+  IN_FLIGHT_WINDOW = 2.minutes
+
+  scope :unresolved, -> { where(state: %w[pending ambiguous]) }
+
+  def mark_stale!(now: Time.current)
+    update!(state: "failed", error_code: "stale", error_message: "No provider resource was recorded within #{STALE_AFTER.inspect}.", last_attempted_at: now)
+  end
+
   def fail_from!(error)
     update!(state: error.ambiguous? ? "ambiguous" : "failed", error_code: error.code, error_message: error.message, last_attempted_at: Time.current)
   end

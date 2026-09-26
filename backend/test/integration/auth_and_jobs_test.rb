@@ -114,7 +114,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     get "/api/notifications/unread", headers: auth(token)
 
     assert_response :success
-    assert_equal({ "unread" => 2 }, response.parsed_body)
+    assert_equal({ "unread" => 2, "unreadMessages" => 0 }, response.parsed_body)
 
     get "/api/notifications/unread"
     assert_response :unauthorized

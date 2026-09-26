@@ -4,8 +4,10 @@ module SyntheticQa
 
     def self.call(...) = new(...).call
 
-    def initialize(batch:)
+    # authorized_by: an active admin may purge demo-* batches in any environment (admin demo-data UI).
+    def initialize(batch:, authorized_by: nil)
       @batch = batch.to_s
+      @authorized_by = authorized_by
       @counts = Hash.new(0)
     end
 
@@ -19,7 +21,6 @@ module SyntheticQa
         delete_relational_rows(user_ids, ids)
         delete_owned_rows(user_ids, ids)
         delete_user_rows(user_ids)
-        remove_attachments(ids.fetch(:all_entity_ids))
       end
 
       Result.new(batch:, users_removed: @counts.fetch("users", 0), records_removed: @counts.values.sum)
@@ -27,13 +28,16 @@ module SyntheticQa
 
     private
 
-    attr_reader :batch
+    attr_reader :batch, :authorized_by
 
     def guard!
-      unless Rails.env.test? || Rails.env.development? || ENV["ALLOW_SYNTHETIC_QA"] == "true"
+      raise ArgumentError, "Invalid synthetic batch." unless batch.match?(/\A[a-z0-9][a-z0-9-]{2,63}\z/)
+      if authorized_by
+        raise SecurityError, "Only an active admin can delete demo data." unless authorized_by.admin? && authorized_by.active?
+        raise ArgumentError, "Only demo-* batches can be deleted from the admin UI." unless Demo.batch?(batch)
+      elsif !(Rails.env.test? || Rails.env.development? || ENV["ALLOW_SYNTHETIC_QA"] == "true")
         raise SecurityError, "Synthetic QA cleanup is disabled. Set ALLOW_SYNTHETIC_QA=true for an explicitly approved environment."
       end
-      raise ArgumentError, "Invalid synthetic batch." unless batch.match?(/\A[a-z0-9][a-z0-9-]{2,63}\z/)
     end
 
     def collect_ids(user_ids)
@@ -100,20 +104,13 @@ module SyntheticQa
     def delete_user_rows(user_ids)
       {
         "job_alerts" => JobAlert.where(user_id: user_ids), "portfolio_items" => PortfolioItem.where(user_id: user_ids),
-        "availability_windows" => AvailabilityWindow.where(user_id: user_ids), "recent_activities" => RecentActivity.where(user_id: user_ids),
+        "availability_windows" => AvailabilityWindow.where(user_id: user_ids),
+        "recent_activities" => RecentActivity.where(user_id: user_ids).or(RecentActivity.where(entity_id: user_ids)),
         "notifications" => Notification.where(user_id: user_ids), "subscriptions" => Subscription.where(user_id: user_ids),
         "email_tokens" => EmailToken.where(user_id: user_ids), "sessions" => Session.where(user_id: user_ids),
         "profiles" => Profile.where(user_id: user_ids)
       }.each { |name, relation| remove(relation, name) }
       remove(User.where(id: user_ids, synthetic_batch: batch), "users")
-    end
-
-    def remove_attachments(entity_ids)
-      return unless defined?(ActiveStorage::Attachment)
-      attachments = ActiveStorage::Attachment.where(record_id: entity_ids)
-      blob_ids = attachments.pluck(:blob_id)
-      remove(attachments, "active_storage_attachments")
-      remove(ActiveStorage::Blob.where(id: blob_ids).where.missing(:attachments), "active_storage_blobs") if blob_ids.any?
     end
 
     def remove(relation, name)

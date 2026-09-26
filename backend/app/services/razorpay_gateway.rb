@@ -3,9 +3,17 @@ require "base64"
 class RazorpayGateway
   API_URL = "https://api.razorpay.com/v1"
 
-  def initialize
-    @key_id = ENV.fetch("RAZORPAY_KEY_ID")
-    @key_secret = ENV.fetch("RAZORPAY_KEY_SECRET")
+  # `connection:` lets contract tests supply a Faraday connection with a stub adapter.
+  def initialize(connection: nil)
+    @connection = connection
+    @key_id = ENV["RAZORPAY_KEY_ID"].to_s.strip
+    @key_secret = ENV["RAZORPAY_KEY_SECRET"].to_s
+    if @key_id.empty? || @key_secret.empty?
+      raise GatewayError.new("Razorpay is not configured for this environment", code: "not_configured")
+    end
+    unless RazorpayConfig.key_mode_allowed?(@key_id)
+      raise GatewayError.new("Razorpay is not configured for this environment", code: "key_mode_rejected")
+    end
   end
 
   def create_order(amount_paise:, currency:, receipt:, notes: {})
@@ -26,25 +34,46 @@ class RazorpayGateway
     request(:get, "orders/#{order_id}")
   end
 
-  def cancel_subscription(subscription_id)
-    post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: 1)
+  def cancel_subscription(subscription_id, at_cycle_end: true)
+    post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: at_cycle_end ? 1 : 0)
   end
 
   def payment(payment_id)
     request(:get, "payments/#{payment_id}")
   end
 
+  # Recovery lookups for attempts whose create response was lost (timeout/5xx).
+  def subscriptions(from:, to: nil, count: 100, skip: 0)
+    request(:get, "subscriptions", query: { from: from.to_i, to: to&.to_i, count:, skip: }.compact)
+  end
+
+  def orders_by_receipt(receipt)
+    request(:get, "orders", query: { receipt: })
+  end
+
   private
+
+  # Outside production, RAZORPAY_SIMULATOR=true (with a test key) answers from RazorpaySimulator
+  # instead of the network; the rest of this class runs unchanged.
+  def connection
+    @connection ||= Faraday.new do |faraday|
+      if RazorpayConfig.simulator?
+        faraday.adapter RazorpaySimulator::Adapter
+      else
+        faraday.adapter Faraday.default_adapter
+      end
+    end
+  end
 
   def post(path, payload)
     request(:post, path, payload)
   end
 
-  def request(method, path, payload = nil)
-    response = Faraday.public_send(method, "#{API_URL}/#{path}") do |request|
+  def request(method, path, payload = nil, query: nil)
+    response = connection.run_request(method, "#{API_URL}/#{path}", payload && JSON.generate(payload), nil) do |request|
+      request.params.update(query) if query
       request.headers["Content-Type"] = "application/json"
-      request.headers["Authorization"] = "Basic #{Base64.strict_encode64("#{@key_id}:#{@key_secret}")}" 
-      request.body = JSON.generate(payload) if payload
+      request.headers["Authorization"] = "Basic #{Base64.strict_encode64("#{@key_id}:#{@key_secret}")}"
       request.options.open_timeout = 3
       request.options.timeout = 12
     end

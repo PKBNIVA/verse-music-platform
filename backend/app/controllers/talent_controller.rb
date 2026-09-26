@@ -1,6 +1,10 @@
 class TalentController < ApplicationController
+  include ScalarParams
+  LIST_LIMIT = 200
+
   def public_index
-    scope = public_scope
+    return unless require_scalar_params!(:q, :location, :role, :instrument, :verified, :remoteRecording)
+    scope = listing_scope
     scope = filter(scope)
     render json: { talent: scope.limit(100).map { public_profile(_1) } }
   end
@@ -12,8 +16,9 @@ class TalentController < ApplicationController
 
   def index
     return unless authenticate!("jobseeker", "employer")
+    return unless require_scalar_params!(:q, :location, :role, :instrument, :verified, :remoteRecording)
     shortlisted = TalentShortlist.where(employer: current_user).pluck(:candidate_id).to_set
-    render json: { candidates: filter(public_scope).limit(100).map { public_profile(_1).merge(shortlisted: shortlisted.include?(_1.id)) } }
+    render json: { candidates: filter(listing_scope).limit(100).map { public_profile(_1).merge(shortlisted: shortlisted.include?(_1.id)) } }
   end
 
   def show
@@ -25,7 +30,8 @@ class TalentController < ApplicationController
 
   def compare
     return unless authenticate!("jobseeker", "employer")
-    ids = params[:ids].to_s.split(",").uniq.first(4)
+    return unless require_scalar_params!(:ids)
+    ids = params[:ids].to_s.split(",").map(&:strip).reject(&:blank?).uniq.first(4)
     return render_error("Choose at least two professionals to compare.", :bad_request) if ids.length < 2
     professionals = public_scope.where(id: ids).map do |candidate|
       availability = AvailabilityWindow.where(user: candidate, status: "available").where("end_at > ?", Time.current).order(:start_at).limit(5).map do |window|
@@ -41,8 +47,18 @@ class TalentController < ApplicationController
 
   def shortlist
     return unless authenticate!("jobseeker", "employer")
-    TalentShortlist.find_or_create_by!(employer: current_user, candidate: public_scope.find(params[:id])) { _1.note = params[:note] }
+    return unless require_scalar_params!(:note)
+    candidate = public_scope.find(params[:id])
+    TalentShortlist.transaction do
+      current_user.lock!
+      unless TalentShortlist.exists?(employer: current_user, candidate:)
+        Entitlements.for(current_user).ensure_capacity!(:shortlist, TalentShortlist.where(employer: current_user).count)
+      end
+      TalentShortlist.find_or_create_by!(employer: current_user, candidate:) { _1.note = params[:note] }
+    end
     render json: { ok: true }, status: :created
+  rescue Entitlements::LimitReached => error
+    render_error(error.message, :payment_required, Entitlements::ERROR_CODE)
   end
 
   def unshortlist
@@ -64,12 +80,16 @@ class TalentController < ApplicationController
 
   def employers
     return unless authenticate!
-    render json: { employers: User.employer.active.includes(:profile).map { public_employer(_1) } }
+    render json: { employers: User.employer.active.includes(:profile).order(:name).limit(LIST_LIMIT).map { public_employer(_1) } }
   end
 
   private
 
-  def public_scope = User.jobseeker.active.where(profile_complete: true).includes(:profile, :portfolio_items)
+  def public_scope = User.discoverable_talent.includes(:profile, :portfolio_items)
+
+  # Browse/search listings hide synthetic QA accounts from real users (except badged demo-* batches);
+  # synthetic viewers still see every batch.
+  def listing_scope = current_user&.synthetic_batch.present? ? public_scope : SyntheticQa::Demo.publicly_listed(public_scope)
 
   def filter(scope)
     if params[:q].present?

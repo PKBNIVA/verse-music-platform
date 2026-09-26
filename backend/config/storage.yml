@@ -8,7 +8,7 @@ amazon:
   service: S3
   access_key_id: <%= ENV["AWS_ACCESS_KEY_ID"] %>
   secret_access_key: <%= ENV["AWS_SECRET_ACCESS_KEY"] %>
-  region: <%= ENV.fetch("AWS_REGION", "ap-south-1") %>
+  region: <%= ENV["AWS_REGION"].presence || (ENV["AWS_ENDPOINT_URL_S3"].present? ? "auto" : "ap-south-1") %>
   bucket: <%= ENV["AWS_BUCKET"] %>
   endpoint: <%= ENV["AWS_ENDPOINT_URL_S3"] %>
   force_path_style: <%= ENV["AWS_ENDPOINT_URL_S3"].present? %>

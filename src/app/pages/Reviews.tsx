@@ -14,22 +14,27 @@ export default function Reviews() {
   const [rating, setRating] = useState(5);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState("");
   const load = () =>
     apiGet<any>("/reviews").then((d) => {
       const eligible = d.eligibleEmployers || [];
-      setReviews(d.reviews);
+      setLoadError("");
+      setReviews(d.reviews || []);
       setEmployers(eligible);
       setEmployerId((current) =>
         eligible.some((employer: any) => employer.id === current)
           ? current
           : eligible[0]?.id || "",
       );
-    });
+    }).catch((e: any) => setLoadError(e?.message || "Reviews could not be loaded."));
   useEffect(() => {
     load();
   }, []);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await apiPost("/reviews", { employerId, rating, title, body });
       setTitle("");
@@ -38,6 +43,8 @@ export default function Reviews() {
       await load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setSubmitting(false);
     }
   }
   return (
@@ -59,7 +66,8 @@ export default function Reviews() {
                     you have already reviewed are not shown.
                   </p>
                 )}
-                <select
+                {employers.length > 0 && <select
+                  aria-label="Employer"
                   value={employerId}
                   onChange={(e) => setEmployerId(e.target.value)}
                   className="w-full h-10 rounded-md bg-slate-900 border border-white/15 px-3"
@@ -69,8 +77,9 @@ export default function Reviews() {
                       {e.companyName || e.name}
                     </option>
                   ))}
-                </select>
+                </select>}
                 <select
+                  aria-label="Rating"
                   value={rating}
                   onChange={(e) => setRating(Number(e.target.value))}
                   className="w-full h-10 rounded-md bg-slate-900 border border-white/15 px-3"
@@ -82,26 +91,43 @@ export default function Reviews() {
                   ))}
                 </select>
                 <Input
+                  aria-label="Review title"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   placeholder="Optional title"
                   className="bg-black/20 border-white/15"
                 />
                 <Textarea
+                  aria-label="Review"
                   required
                   value={body}
                   onChange={(e) => setBody(e.target.value)}
                   placeholder="Share a useful, factual experience…"
                   className="bg-black/20 border-white/15 min-h-28"
                 />
-                <Button className="w-full" disabled={!employerId}>
-                  Submit review
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={!employerId || submitting}
+                  aria-busy={submitting}
+                >
+                  {submitting ? "Submitting…" : "Submit review"}
                 </Button>
               </form>
             </CardContent>
           </Card>
           <div className="space-y-4">
-            {reviews.length === 0 ? (
+            {loadError && (
+              <Card className="bg-rose-500/10 border-rose-400/20" role="alert">
+                <CardContent className="p-5">
+                  <p>{loadError}</p>
+                  <Button className="mt-3" variant="outline" onClick={() => load()}>
+                    Retry
+                  </Button>
+                </CardContent>
+              </Card>
+            )}
+            {loadError ? null : reviews.length === 0 ? (
               <Card className="bg-white/5 border-white/10">
                 <CardContent className="p-8 text-slate-400">
                   No published reviews yet.

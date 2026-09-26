@@ -12,8 +12,13 @@ module Admin
       end
       check.call("Production frontend URL", !Rails.env.production? || ENV["FRONTEND_URL"].to_s.start_with?("https://"), ENV["FRONTEND_URL"].presence || "Not configured", "high")
       persistent_storage = ENV["PERSISTENT_UPLOADS"] == "true" && Rails.root.join("storage").writable?
-      storage_ready = ENV["AWS_BUCKET"].present? || persistent_storage
-      storage_detail = ENV["AWS_BUCKET"].present? ? "S3-compatible storage configured" : persistent_storage ? "Persistent disk writable" : "Not configured or not writable"
+      storage_problems = UploadStorage.configuration_problems
+      storage_ready = UploadStorage.direct? ? storage_problems.empty? : persistent_storage
+      storage_detail = if UploadStorage.direct?
+        storage_problems.empty? ? "S3-compatible storage configured (#{UploadStorage.upload_method.upcase} uploads)" : "S3-compatible storage misconfigured: #{storage_problems.join(', ')}"
+      else
+        persistent_storage ? "Persistent disk writable" : "Not configured or not writable"
+      end
       check.call("Upload storage", !Rails.env.production? || storage_ready, storage_detail, "high")
       release = ENV.fetch("RAILWAY_GIT_COMMIT_SHA", ENV.fetch("RENDER_GIT_COMMIT", ""))
       check.call("Release traceability", !Rails.env.production? || release.present?, release.present? ? release.first(12) : "Commit SHA unavailable", "high")

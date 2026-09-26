@@ -15,11 +15,12 @@ test.describe('real frontend and Rails journeys', () => {
       await page.getByRole('button', {name: /create .* account/i}).click();
       await page.getByLabel(role === 'employer' ? 'Your or company name' : 'Full name').fill(name);
       await page.getByLabel('Email').fill(email);
+      await page.getByRole('button', {name: 'Use password instead'}).click();
       await page.getByLabel('Password', {exact: true}).fill(password);
       await page.getByRole('button', {name: 'Create account', exact: true}).click();
       await expect(page).toHaveURL(new RegExp(`${profilePath}$`));
 
-      const token = await page.evaluate(() => sessionStorage.getItem('verse_access_token'));
+      const token = await page.evaluate(() => localStorage.getItem('verse_access_token'));
       expect(token).toBeTruthy();
       const apiBase = process.env.QA_API_BASE_URL!;
       const me = await request.get(`${apiBase}/me`, {headers: {Authorization: `Bearer ${token}`}});
@@ -52,10 +53,11 @@ test.describe('real frontend and Rails journeys', () => {
         const revoked = await request.get(`${apiBase}/me`, {headers: {Authorization: `Bearer ${token}`}});
         return revoked.status();
       }).toBe(401);
-      await expect.poll(() => page.evaluate(() => sessionStorage.getItem('verse_access_token'))).toBeNull();
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('verse_access_token'))).toBeNull();
 
       await page.goto(`/auth/${role}`);
       await page.getByLabel('Email').fill(email);
+      await page.getByRole('button', {name: 'Use password instead'}).click();
       await page.getByLabel('Password', {exact: true}).fill(password);
       await page.getByRole('button', {name: 'Sign in'}).click();
       await expect.poll(() => new URL(page.url()).pathname).toBe(`/${role}`);

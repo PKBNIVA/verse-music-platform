@@ -10,6 +10,21 @@ Rails.application.configure do
       cron: "*/15 * * * *",
       class: "JobAlertSweepJob",
       description: "Deliver due daily and weekly job alerts"
+    },
+    auth_cleanup: {
+      cron: "17 3 * * *",
+      class: "AuthCleanupJob",
+      description: "Delete expired sessions and email tokens expired or used more than 7 days ago"
+    },
+    billing_reconciliation: {
+      cron: "7,37 * * * *",
+      class: "BillingReconciliationJob",
+      description: "Reconcile or expire stuck billing attempts and unissued booking payments"
+    },
+    upload_sweep: {
+      cron: "43 4 * * *",
+      class: "UploadSweepJob",
+      description: "Delete stale pending uploads, unused or ownerless uploads, and orphaned bucket objects"
     }
   }
 end

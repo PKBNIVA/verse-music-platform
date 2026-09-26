@@ -1,6 +1,26 @@
 class AuthController < ApplicationController
+  LOGIN_FAILURE_PERIOD = 15.minutes
+  # Strict budget per (email, IP) pair; a looser global per-email budget still
+  # stops distributed guessing without letting one attacker lock a user out.
+  LOGIN_FAILURES_PER_EMAIL_AND_IP = 10
+  LOGIN_FAILURES_PER_EMAIL = 100
+  LOGIN_FAILURES_PER_IP = 50
+  MAX_LIVE_SESSIONS = 10
+  OTP_REQUEST_PERIOD = 1.hour
+  OTP_REQUESTS_PER_EMAIL = 5
+  # Mobile carriers put many users behind one IP (CGNAT); the per-email limit is the real guard.
+  OTP_REQUESTS_PER_IP = 30
+  OTP_VERIFY_FAILURE_PERIOD = 15.minutes
+  # Per-code attempts are capped by SignInCode::MAX_ATTEMPTS; this IP budget stops
+  # one client spraying guesses across many addresses' codes.
+  OTP_VERIFY_FAILURES_PER_IP = 25
+  OTP_REQUEST_MESSAGE = "If this email can be used on Verse, a 6-digit code is on its way. It expires in 10 minutes.".freeze
+  OTP_INVALID_MESSAGE = "Invalid or expired code.".freeze
+  PRODUCTION_FRONTEND_URL = "https://verse-music-platform.vercel.app".freeze
+
   def register
-    return unless throttle!("register", limit: 20, period: 1.hour)
+    # Shared campus, office and mobile-carrier IPs sign up many real users; keep bulk abuse bounded.
+    return unless throttle!("register", limit: 60, period: 1.hour)
     role = params[:role].to_s
     return render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE") unless %w[jobseeker employer].include?(role)
 
@@ -16,13 +36,78 @@ class AuthController < ApplicationController
   end
 
   def login
-    return unless throttle!("login", limit: 20, period: 1.hour)
-    user = User.find_by(email: params[:email].to_s.downcase)
-    return render_error("Incorrect email or password.", :unauthorized) unless user&.authenticate(params[:password])
+    unless password_login_enabled?
+      return render_error("Password sign-in is turned off. Use an email sign-in code instead.", :forbidden, "PASSWORD_LOGIN_DISABLED")
+    end
+    email = normalized_email
+    scopes = login_failure_scopes(email)
+    return if failure_budget_exhausted?("login-failure", scopes, period: LOGIN_FAILURE_PERIOD)
+    user = User.find_by(email:)
+    unless user&.authenticate(params[:password])
+      record_failure!("login-failure", scopes, period: LOGIN_FAILURE_PERIOD)
+      return render_error("Incorrect email or password.", :unauthorized)
+    end
     return render_error("This account is not active.", :forbidden) unless user.active?
     user.update!(last_login_at: Time.current)
     token = sign_in(user)
     audit!("auth.login", user)
+    render json: { user: public_user(user), accessToken: token }
+  end
+
+  # POST /auth/otp/request {email, role?, name?}
+  # Always answers with the same body, whether or not an account exists: an
+  # existing account gets a sign-in code; an unknown address with name+role gets
+  # a sign-up code (the account is created on verify); any other address gets an
+  # unusable placeholder row so the work done per request is the same.
+  def otp_request
+    email = normalized_email
+    return render_error("Enter a valid email address.", :unprocessable_entity, "INVALID_EMAIL") unless email.match?(URI::MailTo::EMAIL_REGEXP) && email.length <= 254
+    sign_up = otp_sign_up_params
+    return if performed?
+
+    scopes = { email: [email, OTP_REQUESTS_PER_EMAIL], ip: [request.remote_ip, OTP_REQUESTS_PER_IP] }
+    return if failure_budget_exhausted?("otp-request", scopes, period: OTP_REQUEST_PERIOD)
+    record_failure!("otp-request", scopes, period: OTP_REQUEST_PERIOD)
+
+    user = User.find_by(email:)
+    pending = user ? {} : sign_up.to_h
+    record, code = SignInCode.issue!(email:, pending_name: pending[:name], pending_role: pending[:role])
+    if user || record.sign_up?
+      queue_sign_in_code(user:, email:, code:)
+    else
+      record.update_columns(used_at: record.created_at)
+    end
+
+    result = { ok: true, message: OTP_REQUEST_MESSAGE, expiresIn: SignInCode::LIFETIME.to_i }
+    # Local QA without an email provider only. Never in production, and the same
+    # for every address (an unknown address gets an unusable code).
+    result[:debugCode] = code if !Rails.env.production? && !EmailDelivery.configured?
+    render json: result
+  end
+
+  # POST /auth/otp/verify {email, code} -> same shape as /auth/login.
+  def otp_verify
+    email = normalized_email
+    ip_scope = { ip: [request.remote_ip, OTP_VERIFY_FAILURES_PER_IP] }
+    return if failure_budget_exhausted?("otp-verify-failure", ip_scope, period: OTP_VERIFY_FAILURE_PERIOD)
+
+    code = consume_sign_in_code(email, params[:code])
+    unless code
+      record_failure!("otp-verify-failure", ip_scope, period: OTP_VERIFY_FAILURE_PERIOD)
+      return render_error(OTP_INVALID_MESSAGE, :unauthorized, "OTP_INVALID")
+    end
+
+    user = User.find_by(email:)
+    created = false
+    if user.nil? && code.sign_up?
+      user, created = create_user_from_code(code)
+    end
+    return render_error(OTP_INVALID_MESSAGE, :unauthorized, "OTP_INVALID") unless user
+    return render_error("This account is not active.", :forbidden) unless user.active?
+
+    user.update!(email_verified: true, last_login_at: Time.current)
+    token = sign_in(user)
+    audit!(created ? "auth.register" : "auth.login", user, { method: "email_code" })
     render json: { user: public_user(user), accessToken: token }
   end
 
@@ -42,7 +127,7 @@ class AuthController < ApplicationController
     return unless throttle!("email-verification", limit: 5, period: 1.hour)
     return render json: { ok: true, alreadyVerified: true } if current_user.email_verified?
     token = issue_token("verify_email", 24.hours)
-    render json: token_response(token, "/verify-email")
+    render json: token_response(token, "/verify-email", current_user)
   end
 
   def verify_email
@@ -58,9 +143,14 @@ class AuthController < ApplicationController
 
   def forgot_password
     return unless throttle!("password-reset", limit: 10, period: 1.hour)
-    if (user = User.find_by(email: params[:email].to_s.downcase))
+    if (user = User.find_by(email: normalized_email))
       token = issue_token("reset_password", 2.hours, user)
-      token_response(token, "/reset-password")
+      _link, delivery = deliver_token(token, "/reset-password", user)
+      unless delivery[:queued]
+        Rails.logger.warn({ event: "password_reset_email_skipped", userId: user.id, reason: delivery[:reason] }.to_json)
+      end
+    else
+      Rails.logger.info({ event: "password_reset_unknown_account" }.to_json)
     end
     render json: { ok: true, message: "If an account exists, password reset instructions have been sent." }
   end
@@ -84,7 +174,7 @@ class AuthController < ApplicationController
   def sign_in(user)
     raw = SecureRandom.urlsafe_base64(48)
     user.sessions.create!(token_digest: digest(raw), expires_at: 30.days.from_now)
-    user.sessions.where(id: user.sessions.order(created_at: :desc).offset(5).select(:id)).delete_all
+    user.sessions.where(id: user.sessions.order(created_at: :desc).offset(MAX_LIVE_SESSIONS).select(:id)).delete_all
     raw
   end
 
@@ -95,17 +185,112 @@ class AuthController < ApplicationController
     raw
   end
 
-  def token_response(token, path)
-    user = current_user || User.find_by(email: params[:email].to_s.downcase)
+  def normalized_email = params[:email].to_s.strip.downcase
+
+  def password_login_enabled? = ENV.fetch("PASSWORD_LOGIN_ENABLED", "true").strip.downcase != "false"
+
+  # Validated the same way whether or not the address has an account, so a
+  # validation error never reveals account existence. Returns nil for sign-in.
+  def otp_sign_up_params
+    role = params[:role].to_s.strip
+    name = params[:name].to_s.strip
+    return nil if role.blank? && name.blank?
+    unless SignInCode::SIGN_UP_ROLES.include?(role)
+      render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE")
+      return nil
+    end
+    unless name.length.between?(2, 120)
+      render_error("Enter a name between 2 and 120 characters.", :unprocessable_entity, "INVALID_NAME")
+      return nil
+    end
+    { name:, role: }
+  end
+
+  # Spends one attempt on the newest usable code for the address and returns it
+  # (marked used) when the code matches. The row lock serialises concurrent
+  # guesses so the attempt cap cannot be raced.
+  def consume_sign_in_code(email, raw)
+    candidate = SignInCode.latest_usable_for(email)
+    # Keep the no-code path doing the same HMAC work as the has-code path.
+    unless candidate
+      SignInCode.new(id: "sign_placeholder", code_digest: "").matches?(raw)
+      return nil
+    end
+
+    matched = false
+    candidate.with_lock do
+      next if candidate.used_at? || candidate.expires_at <= Time.current || candidate.attempts >= SignInCode::MAX_ATTEMPTS
+      candidate.attempts += 1
+      matched = candidate.matches?(raw)
+      candidate.used_at = Time.current if matched || candidate.attempts >= SignInCode::MAX_ATTEMPTS
+      candidate.save!
+    end
+    candidate if matched
+  end
+
+  def create_user_from_code(code)
+    user = User.transaction do
+      created = User.create!(name: code.pending_name, email: code.email, role: code.pending_role, status: :active,
+        email_verified: true, password: SecureRandom.base58(32))
+      created.create_profile!
+      created
+    end
+    [user, true]
+  rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+    # Registered by another path since the code was sent; the verifier still
+    # proved control of the inbox, so sign in to that account.
+    [User.find_by(email: code.email), false]
+  end
+
+  def queue_sign_in_code(user:, email:, code:)
+    return unless EmailDelivery.configured?
+    user ? EmailDeliveryJob.enqueue_code(template: "sign_in_code", code:, user:) : EmailDeliveryJob.enqueue_code(template: "sign_in_code", code:, email:)
+  rescue StandardError => error
+    # The response must not differ, so a queueing failure is only logged.
+    Rails.logger.error({ event: "email_enqueue_failed", template: "sign_in_code", error: error.class.name }.to_json)
+  end
+
+  def login_failure_scopes(email)
+    {
+      email_ip: [email.presence && "#{email}|#{request.remote_ip}", LOGIN_FAILURES_PER_EMAIL_AND_IP],
+      email: [email, LOGIN_FAILURES_PER_EMAIL],
+      ip: [request.remote_ip, LOGIN_FAILURES_PER_IP]
+    }
+  end
+
+  def token_response(token, path, user)
     link, delivery = deliver_token(token, path, user)
     result = { ok: true, delivery: }
     result[:debugLink] = link unless Rails.env.production?
     result
   end
 
+  # Builds the link and queues delivery. The returned hash is the public
+  # `delivery`/`verificationDelivery` contract: { queued: true } once a provider
+  # job is enqueued, otherwise { queued: false, delivered: false, reason: }.
   def deliver_token(token, path, user)
-    link = "#{ENV.fetch('FRONTEND_URL', 'http://localhost:5173')}#{path}?token=#{CGI.escape(token)}"
-    delivery = EmailDelivery.call(to: user&.email, template: path.include?("reset") ? "reset_password" : "verify_email", data: { link: })
-    [link, delivery]
+    link = "#{frontend_url}#{path}?token=#{CGI.escape(token)}"
+    template = path.include?("reset") ? "reset_password" : "verify_email"
+    [link, queue_email(user, template, link)]
+  end
+
+  def queue_email(user, template, link)
+    return { queued: false, delivered: false, reason: "Recipient unavailable" } if user&.email.blank?
+    return { queued: false, delivered: false, reason: "Email provider not configured" } unless EmailDelivery.configured?
+    EmailDeliveryJob.enqueue(user:, template:, link:)
+    { queued: true }
+  rescue StandardError => error
+    # The account/token already exists; report the failure instead of a 500.
+    Rails.logger.error({ event: "email_enqueue_failed", template:, error: error.class.name }.to_json)
+    { queued: false, delivered: false, reason: "delivery error" }
+  end
+
+  def frontend_url
+    configured = ENV["FRONTEND_URL"].to_s.strip.sub(%r{/+\z}, "")
+    return configured if configured.present?
+    return "http://localhost:5173" unless Rails.env.production?
+
+    Rails.logger.error({ event: "frontend_url_missing", fallback: PRODUCTION_FRONTEND_URL }.to_json)
+    PRODUCTION_FRONTEND_URL
   end
 end

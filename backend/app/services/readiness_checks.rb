@@ -15,10 +15,9 @@ class ReadinessChecks
       adminPassword: check(!Rails.env.production? || ENV.fetch("ADMIN_PASSWORD", "").length >= 14, required: true),
       demoData: check(!Rails.env.production? || ENV["SEED_DEMO_DATA"] != "true", required: true),
       backgroundJobs: background_jobs_check,
-      storage: check(!Rails.env.production? || ENV["AWS_BUCKET"].present? || ENV["PERSISTENT_UPLOADS"] == "true", required: false,
-        provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : ENV["PERSISTENT_UPLOADS"] == "true" ? "persistent-disk" : "disabled"),
-      payments: check(!Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), required: false,
-        provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled"),
+      storage: storage_check,
+      payments: check(payments_ready?, required: false,
+        provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled", mode: RazorpayConfig.mode),
       emailDelivery: check(!Rails.env.production? || EmailDelivery.brevo_configured? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?,
         required: ENV["REQUIRE_EMAIL_VERIFICATION"] == "true",
         provider: EmailDelivery.brevo_configured? ? "brevo" : ENV["RESEND_API_KEY"].present? ? "resend" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "webhook" : "disabled")
@@ -34,6 +33,25 @@ class ReadinessChecks
   end
 
   private
+
+  # Configuration problems are reported as fixed codes (never values) so the admin
+  # health view can say *what* is wrong without echoing credentials or hostnames.
+  def storage_check
+    direct = UploadStorage.direct?
+    problems = UploadStorage.configuration_problems
+    ok = direct ? problems.empty? : (!Rails.env.production? || ENV["PERSISTENT_UPLOADS"] == "true")
+    details = { provider: direct ? "s3-compatible" : ENV["PERSISTENT_UPLOADS"] == "true" ? "persistent-disk" : Rails.env.production? ? "disabled" : "local-disk" }
+    details[:uploadMethod] = UploadStorage.upload_method if direct
+    details[:problems] = problems if problems.any?
+    check(ok, required: false, **details)
+  end
+
+  def payments_ready?
+    return false if RazorpayConfig.key_present? && !RazorpayConfig.key_mode_allowed?
+    # The local simulator is ignored in production; flag the stray variable instead of hiding it.
+    return false if Rails.env.production? && ENV["RAZORPAY_SIMULATOR"].present?
+    !Rails.env.production? || (RazorpayConfig.usable? && ENV["RAZORPAY_WEBHOOK_SECRET"].present?)
+  end
 
   def background_jobs_check
     adapter = ActiveJob::Base.queue_adapter_name

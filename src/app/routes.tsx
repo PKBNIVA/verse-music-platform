@@ -1,4 +1,4 @@
-import {createBrowserRouter} from 'react-router';import React from 'react';import {ProtectedRoute} from './components/ProtectedRoute';import {PageLoading} from './components/ExperienceStates';
+import {createBrowserRouter} from 'react-router';import React from 'react';import {ProtectedRoute} from './components/ProtectedRoute';import {PageLoading} from './components/ExperienceStates';import {RouteErrorPage} from './components/RouteErrorPage';
 const L=(f:()=>Promise<any>)=>React.lazy(f);
 const LandingPage=L(()=>import('./pages/LandingPage'));
 const AuthPage=L(()=>import('./pages/AuthPage'));
@@ -39,6 +39,7 @@ const LegalPage=L(()=>import('./pages/public/LegalPage'));
 const UrgentRequests=L(()=>import('./pages/UrgentRequests'));
 const Availability=L(()=>import('./pages/Availability'));
 const VerifyEmail=L(()=>import('./pages/VerifyEmail'));
+const Unsubscribe=L(()=>import('./pages/Unsubscribe'));
 const ForgotPassword=L(()=>import('./pages/ForgotPassword'));
 const ResetPassword=L(()=>import('./pages/ResetPassword'));
 const Workspace=L(()=>import('./pages/Workspace'));
@@ -49,7 +50,9 @@ const BandBuilder=L(()=>import('./pages/BandBuilder'));
 const Billing=L(()=>import('./pages/Billing'));
 const S=({children}:{children:React.ReactNode})=><React.Suspense fallback={<PageLoading/>}>{children}</React.Suspense>;
 const P=({roles,children}:{roles:any[];children:React.ReactNode})=><S><ProtectedRoute roles={roles}>{children}</ProtectedRoute></S>;
-export const router=createBrowserRouter([{path:'/',element:<S><LandingPage/></S>},
+// The pathless root route gives every page one error boundary: stale lazy chunks after a
+// redeploy reload once, other render errors show a branded recovery screen.
+export const router=createBrowserRouter([{errorElement:<RouteErrorPage/>,children:[{path:'/',element:<S><LandingPage/></S>},
 {path:'/pricing',element:<S><Pricing/></S>},
 {path:'/start',element:<S><IntentHub/></S>},
 {path:'/guide',element:<S><Guide/></S>},
@@ -71,6 +74,7 @@ export const router=createBrowserRouter([{path:'/',element:<S><LandingPage/></S>
 {path:'/accessibility',element:<S><LegalPage/></S>},
 {path:'/contact',element:<S><LegalPage/></S>},
 {path:'/verify-email',element:<S><VerifyEmail/></S>},
+{path:'/unsubscribe',element:<S><Unsubscribe/></S>},
 {path:'/forgot-password',element:<S><ForgotPassword/></S>},
 {path:'/reset-password',element:<S><ResetPassword/></S>},
 {path:'/auth/:userType',element:<S><AuthPage/></S>},
@@ -119,4 +123,4 @@ export const router=createBrowserRouter([{path:'/',element:<S><LandingPage/></S>
 {path:'workspace',element:<P roles={['employer']}><Workspace/></P>}]},
 {path:'/admin',element:<P roles={['admin']}><AdminDashboard/></P>},
 {path:'/admin/tester',element:<P roles={['admin']}><AdminTester/></P>},
-{path:'*',element:<S><NotFound/></S>}]);
+{path:'*',element:<S><NotFound/></S>}]}]);

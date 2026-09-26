@@ -11,12 +11,13 @@ class Act < ApplicationRecord
   validates :lineup_size, numericality: { only_integer: true, greater_than: 0 }, allow_nil: true
   validates :min_fee, :max_fee, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
   validate :fee_range_is_valid
-  def api_json = attributes.merge(members: act_members.map(&:api_json), ownerName: owner.name, ownerVerified: owner.profile&.verified || false)
+  def api_json = attributes.merge(members: act_members.map(&:api_json), ownerName: owner.name, ownerVerified: owner.profile&.verified || false, demo: SyntheticQa::Demo.user?(owner))
   def public_json
     attributes.except("owner_id", "tech_rider_url", "hospitality_rider_url").merge(
       members: act_members.select { _1.member_status == "confirmed" }.map(&:public_json),
       ownerName: owner.name,
-      ownerVerified: owner.profile&.verified || false
+      ownerVerified: owner.profile&.verified || false,
+      demo: SyntheticQa::Demo.user?(owner)
     )
   end
 

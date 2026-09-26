@@ -9,17 +9,26 @@ const publicPages = await Promise.all([
   read('../src/app/pages/public/PublicActs.tsx'),
 ]);
 
+const detailState = await read('../src/app/components/PublicDetailState.tsx');
 for (const source of publicPages) {
   assert.match(source, /setLoading\(true\)/, 'public API screens must expose a loading state');
   assert.match(source, /setError\(/, 'public API screens must expose request failures');
-  assert.match(source, /Try again/, 'public API screens must provide a retry action');
+  if (/PublicDetailState/.test(source)) {
+    // The shared detail state renders the Try again button; the page must wire its retry.
+    assert.match(source, /onRetry=/, 'public API screens must provide a retry action');
+    assert.match(detailState, /onRetry}>Try again</, 'the shared public detail state must render a retry action');
+  } else {
+    assert.match(source, /Try again/, 'public API screens must provide a retry action');
+  }
 }
 assert.match(publicPages[3], /acts\.length===0/, 'the public act catalog must distinguish an empty result from a failed request');
 
 const notifications = await read('../src/app/pages/Notifications.tsx');
-assert.doesNotMatch(notifications, /catch\(\(\)=>\{\}\)/, 'notification failures must not be swallowed');
-assert.match(notifications, /setItems\(xs=>xs\.map\(x=>x\.id===n\.id\?\{\.\.\.x,readAt\}:x\)\)/, 'mark-read must update optimistically');
-assert.match(notifications, /catch\(e:any\)\{setItems\(xs=>xs\.map\(x=>x\.id===n\.id\?\{\.\.\.x,readAt:null\}:x\)\)/, 'mark-read failure must roll back optimistic state');
+// Whitespace-insensitive: these checks are about behaviour, not formatting.
+const notificationsCompact = notifications.replace(/\s+/g, '');
+assert.doesNotMatch(notificationsCompact, /catch\(\(\)=>\{\}\)/, 'notification failures must not be swallowed');
+assert.match(notificationsCompact, /setItems\(xs=>xs\.map\(x=>x\.id===n\.id\?\{\.\.\.x,readAt\}:x\)\)/, 'mark-read must update optimistically');
+assert.match(notificationsCompact, /catch\(e:any\)\{setItems\(xs=>xs\.map\(x=>x\.id===n\.id\?\{\.\.\.x,readAt:null\}:x\)\)/, 'mark-read failure must roll back optimistic state');
 
 const jobDetails = await read('../src/app/pages/JobDetails.tsx');
 assert.match(jobDetails, /user\?\.role==='jobseeker'&&<div className="flex gap-2 mb-5">/, 'save and report controls must be limited to jobseekers');
@@ -37,7 +46,7 @@ assert.match(availability, /Unable to remove availability/, 'availability deleti
 
 const workspace = await read('../src/app/pages/Workspace.tsx');
 assert.match(workspace, /Unable to load workspaces/, 'workspace load failures must be visible');
-assert.match(workspace, /window\.confirm/, 'member removal must require confirmation');
+assert.match(workspace, /window\.confirm|confirmDialog/, 'member removal must require confirmation');
 
 const adminTester = await read('../src/app/pages/AdminTester.tsx');
 assert.match(adminTester, /Unable to run platform checks/, 'admin runtime check failures must be visible');

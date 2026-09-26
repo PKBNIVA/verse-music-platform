@@ -87,6 +87,38 @@ Fixes P1-1, P1-2, P1-5 and the no-regret parts of P1-4, with regression tests
 No migration and no API contract change. P1-3 follows in its own PR with a reviewed, reversible
 migration.
 
+## Hardening pass 2 (2026-09-26)
+
+Fifteen parallel workstreams, integrated on `claude/verse-audit-hardening-tc6tqd`, each fix shipped
+with a regression test that failed before it. Roughly 180 issues were fixed across the two passes.
+
+**Resolved from the gap register:** P1-3 (evidence URL nullable); P1-4 no-regret items plus
+per-email+IP login throttling, 10-session cap, cross-tab session persistence (localStorage with
+migration), 401/403-only sign-out; P1-5 (CSP); committed `Gemfile.lock`/`schema.rb` with CI drift
+check; Brakeman, bundler-audit, npm audit and Dependabot; legacy Node server removed; DB pool sized
+for Puma + GoodJob; email sent from GoodJob with retries; Razorpay key-mode guard, idempotency,
+plan-change rules, full webhook coverage, scheduled reconciliation, entitlements, and the 40-char
+receipt bug that would have rejected every live deposit; R2-ready verified uploads with cleanup;
+authorization fixes (workspaces, acts, folders, messaging limits); N+1 and unbounded lists bounded.
+
+**New capabilities:** email one-time-code sign-in (passwords kept as fallback via
+`PASSWORD_LOGIN_ENABLED`); admin one-click demo data with public "Demo" badges and complete purge;
+admin Sign-in doctor; messaging notifications, polling, email notifications with one-click
+unsubscribe and an opt-out; draft job editing; booking lifecycle for both parties; admin billing
+reconcile, events and plan grants; local Razorpay simulator for full payment rehearsal.
+
+**Final verification (local, synthetic data):** Rails 463 runs / 9,194 assertions / 0 failures /
+0 skips; Brakeman 0 warnings; bundler-audit and npm audit clean; Playwright 256 passed on desktop
+and Pixel 7 (mocked API) plus 20/20 real-stack journeys (sign-up/in, uploads, every payment flow
+against the simulator); real-stack click crawl of 71 routes × 4 roles with 0 crashes, page errors
+or 5xx.
+
+**Still open:** production backup/restore proof (P0-1, needs Railway access); live Brevo domain
+authentication and a real delivered email; R2 bucket setup; one real low-value Razorpay deposit and
+refund; Rails 7.2 is past security support (upgrade to 8.x); act-member invitation/consent flow;
+offer accept/decline for candidates; error tracking/alerting (Sentry or similar); Redis for shared
+rate limits across replicas.
+
 ## Access checklist (tokens live in environment settings, never in chat or the repo)
 
 | Variable | Source | Scope |

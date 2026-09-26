@@ -1,11 +1,14 @@
 class BandProjectsController < ApplicationController
   before_action -> { authenticate!("jobseeker", "employer") }
-  def index = render(json: { projects: current_user.band_projects.includes(:band_project_roles).order(updated_at: :desc).map { _1.attributes.merge(roles: _1.band_project_roles) } })
+  def index = render(json: { projects: current_user.band_projects.includes(:band_project_roles).order(updated_at: :desc).limit(200).map { _1.attributes.merge(roles: _1.band_project_roles) } })
   def create
-    project = current_user.band_projects.create!(name: params[:name], concept: params[:concept], city: params[:city], genres: params[:genres] || [], commitment_type: params[:commitmentType].presence || "project", rehearsal_schedule: params[:rehearsalSchedule], compensation_model: params[:compensationModel], status: "open"); render json: { id: project.id }, status: :created
+    return render_error("name is required.", :unprocessable_entity, "MISSING_FIELD") if params[:name].blank?
+    project = current_user.band_projects.create!(name: params[:name], concept: params[:concept], city: params[:city], genres: Array.wrap(params[:genres]).map { _1.to_s.strip }.reject(&:blank?), commitment_type: params[:commitmentType].presence || "project", rehearsal_schedule: params[:rehearsalSchedule], compensation_model: params[:compensationModel], status: "open"); render json: { id: project.id }, status: :created
   end
   def add_role
-    project = current_user.band_projects.find(params[:id]); role = project.band_project_roles.create!(role_name: params[:roleName], instrument: params[:instrument], count_needed: params[:countNeeded] || 1, skill_level: params[:skillLevel].presence || "professional", requirements: params[:requirements], compensation: params[:compensation], status: "open"); render json: { id: role.id }, status: :created
+    project = current_user.band_projects.find(params[:id])
+    return render_error("roleName is required.", :unprocessable_entity, "MISSING_FIELD") if params[:roleName].blank?
+    role = project.band_project_roles.create!(role_name: params[:roleName], instrument: params[:instrument], count_needed: params[:countNeeded].presence || 1, skill_level: params[:skillLevel].presence || "professional", requirements: params[:requirements], compensation: params[:compensation], status: "open"); render json: { id: role.id }, status: :created
   end
   def publish_role
     project = current_user.band_projects.find(params[:id]); role = project.band_project_roles.find(params[:roleId]); return render_error("Role already published", :conflict) if role.opportunity_id.present?
@@ -18,7 +21,6 @@ class BandProjectsController < ApplicationController
   private
 
   def active_post_limit
-    code = Subscription.where(user: current_user, status: %w[active trialing]).order(created_at: :desc).pick(:plan_code) || "free"
-    { "free" => 1, "pro" => 10, "studio" => 50, "enterprise" => 9999 }.fetch(code, 1)
+    Entitlements.for(current_user).limit(:active_posts)
   end
 end

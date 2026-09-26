@@ -14,7 +14,7 @@ class JobAlertDeliveryJob < ApplicationJob
           kind: "job_alert",
           title: "New match for #{alert.name}",
           body: "#{job.title} at #{job.company} matches your saved alert.",
-          link: "/jobs/#{job.id}"
+          link: "/jobseeker/jobs/#{job.id}"
         )
         JobAlertDelivery.create!(job_alert: alert, job:, notification:)
       end

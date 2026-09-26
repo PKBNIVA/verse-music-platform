@@ -13,6 +13,10 @@ class ApiContractTest < ActionDispatch::IntegrationTest
     consumers = frontend_api_consumers
 
     assert_operator consumers.length, :>=, 100, "API consumer scanner stopped finding expected calls"
+    # /api/dev/razorpay/* exists only while the local Razorpay simulator is enabled.
+    simulator_env = { "RAZORPAY_SIMULATOR" => "true", "RAZORPAY_KEY_ID" => "rzp_test_contract" }
+    previous = simulator_env.to_h { [_1, ENV[_1]] }
+    ENV.update(simulator_env)
     consumers.each do |consumer|
       begin
         Rails.application.routes.recognize_path(consumer[:path], method: consumer[:method])
@@ -20,6 +24,8 @@ class ApiContractTest < ActionDispatch::IntegrationTest
         flunk "#{consumer[:source]} calls missing #{consumer[:method].upcase} #{consumer[:path]}: #{error.message}"
       end
     end
+  ensure
+    previous&.each { |key, value| value.nil? ? ENV.delete(key) : ENV[key] = value }
   end
 
   test "anonymous discovery endpoints keep their browser-facing response contracts" do

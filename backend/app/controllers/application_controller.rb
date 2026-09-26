@@ -2,7 +2,16 @@ class ApplicationController < ActionController::API
   around_action :log_request
   before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
-  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
+  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity, "VALIDATION_FAILED") }
+  # Client mistakes that would otherwise surface as 500s (or as framework error pages without
+  # the {error, code} shape). Later declarations take precedence over earlier ones.
+  rescue_from ArgumentError, with: :render_invalid_argument
+  rescue_from ActiveModel::RangeError, with: -> { render_error("A number is outside the allowed range.", :unprocessable_entity, "OUT_OF_RANGE") }
+  rescue_from ActiveRecord::NotNullViolation, with: :render_missing_column
+  rescue_from ActiveRecord::RecordNotUnique, with: -> { render_error("This record already exists.", :conflict, "CONFLICT") }
+  rescue_from ActionController::BadRequest, with: ->(error) { render_error(error.message.presence || "Bad request", :bad_request, "BAD_REQUEST") }
+  rescue_from ActionController::ParameterMissing, with: ->(error) { render_error("Missing parameter: #{error.param}", :bad_request, "PARAMETER_MISSING") }
+  rescue_from ActionDispatch::Http::Parameters::ParseError, with: -> { render_error("Request body is not valid JSON.", :bad_request, "MALFORMED_JSON") }
 
   private
 
@@ -53,6 +62,23 @@ class ApplicationController < ActionController::API
     render json: { error: message, code: code }.compact, status: status
   end
 
+  # Enum assignment ("'x' is not a valid status") and PostgreSQL's refusal of NUL bytes are
+  # input errors; any other ArgumentError is a programming error and stays a 500.
+  INVALID_ARGUMENT_PATTERN = /is not a valid \w+|string contains null byte/
+
+  def render_invalid_argument(error)
+    raise error unless error.message.match?(INVALID_ARGUMENT_PATTERN)
+    message = error.message.include?("null byte") ? "Text may not contain NUL characters." : error.message.delete("'").capitalize
+    render_error(message, :unprocessable_entity, "INVALID_VALUE")
+  end
+
+  # A NOT NULL column reached the database without a value: a required field was omitted.
+  def render_missing_column(error)
+    column = error.cause.respond_to?(:result) ? error.cause.result&.error_field(PG::Result::PG_DIAG_COLUMN_NAME) : nil
+    field = column.to_s.camelize(:lower).presence
+    render_error(field ? "#{field} is required." : "A required field is missing.", :unprocessable_entity, "MISSING_FIELD")
+  end
+
   def digest(value)
     Digest::SHA256.hexdigest(value.to_s)
   end
@@ -63,7 +89,8 @@ class ApplicationController < ActionController::API
   end
 
   def public_profile(user)
-    public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone")
+    public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone", "synthetic_batch")
+      .merge("demo" => SyntheticQa::Demo.user?(user))
   end
 
   def public_employer(user)
@@ -91,7 +118,36 @@ class ApplicationController < ActionController::API
     key = "rate:#{bucket}:#{request.remote_ip}:#{Time.current.to_i / period.to_i}"
     count = Rails.cache.increment(key, 1, expires_in: period) || 1
     return true if count <= limit
-    render_error("Too many requests. Try again later.", :too_many_requests)
+    render_too_many_requests
     false
+  end
+
+  # Failure-only throttling: callers check the budget before attempting an
+  # action and spend it only when the attempt fails. Each scope is a
+  # [identifier, limit] pair, e.g. { email: [address, 10], ip: [remote_ip, 50] }.
+  # Identifiers are hashed so cache keys never contain email addresses.
+  def failure_budget_exhausted?(bucket, scopes, period:)
+    exhausted = scopes.any? do |scope, (identifier, limit)|
+      next false if identifier.blank?
+      # Incrementing by zero is an atomic read that works on every cache store.
+      (Rails.cache.increment(failure_key(bucket, scope, identifier, period), 0, expires_in: period) || 0) >= limit
+    end
+    render_too_many_requests if exhausted
+    exhausted
+  end
+
+  def record_failure!(bucket, scopes, period:)
+    scopes.each do |scope, (identifier, _limit)|
+      next if identifier.blank?
+      Rails.cache.increment(failure_key(bucket, scope, identifier, period), 1, expires_in: period)
+    end
+  end
+
+  def failure_key(bucket, scope, identifier, period)
+    "rate:#{bucket}:#{scope}:#{digest(identifier)}:#{Time.current.to_i / period.to_i}"
+  end
+
+  def render_too_many_requests
+    render_error("Too many requests. Try again later.", :too_many_requests)
   end
 end

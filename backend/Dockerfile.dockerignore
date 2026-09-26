@@ -1,0 +1,12 @@
+# Used by BuildKit for backend/Dockerfile. Paths are relative to the build
+# context, which is the repository root; only backend/ is needed by the image.
+# (A backend/.dockerignore is never read because the context is the repo root.)
+*
+!backend/
+backend/.env*
+backend/log/*
+backend/tmp/*
+backend/storage/*
+backend/test/
+backend/vendor/bundle/
+backend/.bundle/

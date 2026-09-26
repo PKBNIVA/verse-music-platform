@@ -1,7 +1,9 @@
 default: &default
   adapter: postgresql
   encoding: unicode
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5) %>
+  # Puma threads + in-process GoodJob threads + headroom for the GoodJob
+  # notifier/scheduler and ad-hoc connections.
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5).to_i + ENV.fetch("GOOD_JOB_MAX_THREADS", 2).to_i + 3 %>
   url: <%= ENV["DATABASE_URL"] %>
 
 development:

@@ -13,7 +13,10 @@ class HealthController < ApplicationController
 
   private
 
+  # A not-ready answer also carries the API-wide {error, code} fields so clients and uptime
+  # probes can treat it like any other error response.
   def health_payload(ok)
-    { ok:, service: "verse-rails", release: RELEASE.first(12), time: Time.current.iso8601 }
+    payload = { ok:, service: "verse-rails", release: RELEASE.first(12), time: Time.current.iso8601 }
+    ok ? payload : payload.merge(error: "Service is not ready.", code: "NOT_READY")
   end
 end

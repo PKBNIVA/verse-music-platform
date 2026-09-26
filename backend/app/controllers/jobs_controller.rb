@@ -1,6 +1,16 @@
 class JobsController < ApplicationController
+  include JobAuthoring
+  FILTER_PARAMS = %i[q location kind function workplace experience paid verified].freeze
+  LIST_LIMIT = 200
+
   def index
-    jobs = Job.published.includes(:applications, employer: :profile).order(featured: :desc, created_at: :desc)
+    # ?location[]=a or ?kind[x]=y arrive as arrays/hashes; the filters below expect text.
+    if (bad = FILTER_PARAMS.find { params.key?(_1) && !params[_1].is_a?(String) })
+      return render_error("Search filter \"#{bad}\" must be a single text value.", :bad_request, "INVALID_FILTER")
+    end
+    jobs = Job.published.with_applications_count.includes(employer: :profile).order(featured: :desc, created_at: :desc)
+    # Same rule as talent: non-demo synthetic QA batches are only listed to synthetic viewers.
+    jobs = SyntheticQa::Demo.publicly_listed(jobs.joins(:employer)) unless current_user&.synthetic_batch.present?
     query = params[:q].to_s.strip
     if query.present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(query)}%"
@@ -19,8 +29,9 @@ class JobsController < ApplicationController
   end
 
   def show
-    job = Job.includes(:applications, employer: :profile).find(params[:id])
-    unless job.published? || current_user&.admin? || current_user&.id == job.employer_id
+    job = Job.with_applications_count.includes(employer: :profile).find(params[:id])
+    hidden_synthetic = job.employer.synthetic_batch.present? && !job.employer.synthetic_batch.start_with?(SyntheticQa::Demo::PREFIX) && current_user&.synthetic_batch.blank?
+    unless (job.published? && !hidden_synthetic) || current_user&.admin? || current_user&.id == job.employer_id
       return render_error("Opportunity not found", :not_found)
     end
     applied = current_user&.jobseeker? && Application.exists?(candidate: current_user, job:)
@@ -30,11 +41,23 @@ class JobsController < ApplicationController
 
   def create
     return unless authenticate!("jobseeker", "employer")
-    if params[:status] != "draft" && current_user.jobs.where(status: %w[pending published]).count >= active_post_limit
-      return render_error("Your plan limit has been reached. Upgrade to continue.", :payment_required, "PLAN_LIMIT")
+    return unless require_scalar_params!(:status, :company)
+    draft = params[:status] == "draft"
+    attributes = job_params(defaults: true)
+    flags = moderation_flags_for(attributes)
+    job = current_user.jobs.build(attributes.merge(status: draft ? "draft" : "pending", company: params[:company].presence || current_user.profile&.company_name || current_user.name, moderation_note: flags.join("; ").presence))
+    return render_error(job.errors.full_messages.to_sentence, :unprocessable_entity) unless job.valid?
+    if !draft && (error = submission_error(job))
+      return render_error(error, :unprocessable_entity)
     end
-    flags = moderation_flags
-    job = current_user.jobs.create!(job_params.merge(status: params[:status] == "draft" ? "draft" : "pending", company: params[:company].presence || current_user.profile&.company_name || current_user.name, moderation_note: flags.join("; ").presence))
+    Job.transaction do
+      if !draft && (limit_error = active_post_limit_error)
+        render_error(limit_error, :payment_required, "PLAN_LIMIT")
+        raise ActiveRecord::Rollback
+      end
+      job.save!
+    end
+    return if performed?
     audit!("job.create", job)
     render json: { id: job.id, status: job.status, moderationFlags: flags }, status: :created
   end
@@ -45,9 +68,14 @@ class JobsController < ApplicationController
     return render_error("You cannot apply to an opportunity you created.", :conflict) if job.employer_id == current_user.id
     return render_error("The application deadline has passed.", :conflict) if job.application_deadline&.past?
     return render_error("This opportunity requires at least one portfolio item.", :conflict) if job.portfolio_required? && current_user.portfolio_items.none?
-    application = job.applications.create!(candidate: current_user, cover_letter: params[:coverLetter], screening_answers: params[:screeningAnswers] || [])
+    cover_letter = params[:coverLetter]
+    return render_error("The note to the employer must be text.", :unprocessable_entity) unless cover_letter.nil? || cover_letter.is_a?(String)
+    return render_error("The note to the employer must be 5,000 characters or fewer.", :unprocessable_entity) if cover_letter.to_s.length > 5_000
+    answers = params[:screeningAnswers]
+    answers = Array(answers.is_a?(Array) ? answers : nil).select { _1.is_a?(String) }.map { _1.first(5_000) }
+    application = job.applications.create!(candidate: current_user, cover_letter: cover_letter.presence, screening_answers: answers)
     application.application_events.create!(actor: current_user, event_type: "created", to_status: "Applied")
-    Notification.create!(user: job.employer, kind: "application", title: "New application", body: "#{current_user.name} applied to #{job.title}.", link: "/hiring/applicants")
+    Notifier.new_application(application)
     audit!("application.create", application)
     render json: { id: application.id, status: application.status }, status: :created
   rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => error
@@ -57,12 +85,17 @@ class JobsController < ApplicationController
 
   def saved
     return unless authenticate!("jobseeker")
-    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).includes(:applications, employer: :profile).order("saved_jobs.created_at DESC").map(&:api_json) }
+    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).with_applications_count.includes(employer: :profile).order("saved_jobs.created_at DESC").limit(LIST_LIMIT).map(&:api_json) }
   end
 
   def save
     return unless authenticate!("jobseeker")
-    SavedJob.find_or_create_by!(user: current_user, job: Job.published.find(params[:id]))
+    job = Job.published.find(params[:id])
+    begin
+      SavedJob.find_or_create_by!(user: current_user, job:)
+    rescue ActiveRecord::RecordNotUnique
+      # A concurrent request saved it first (unique index on user_id, job_id): same outcome.
+    end
     render json: { ok: true }, status: :created
   end
 
@@ -70,35 +103,5 @@ class JobsController < ApplicationController
     return unless authenticate!("jobseeker")
     SavedJob.where(user: current_user, job_id: params[:id]).delete_all
     render json: { ok: true }
-  end
-
-  private
-
-  def job_params
-    raw = params.permit(:title, :location, :type, :genre, :salary, :description, :requirements, :experienceLevel,
-      :opportunityKind, :functionArea, :workplace, :compensationMin, :compensationMax, :currency,
-      :compensationPeriod, :paid, :applicationDeadline, :startDate, :duration, :portfolioRequired, :slots,
-      skills: [], languages: [], screeningQuestions: []).to_h
-    mapped = raw.transform_keys { _1.underscore }
-    mapped["kind"] = mapped.delete("type") || "Project-based"
-    mapped["genre"] = "Multi-genre" if mapped["genre"].blank?
-    mapped["opportunity_kind"] ||= "job"
-    mapped["workplace"] ||= "onsite"
-    mapped["currency"] ||= "INR"
-    mapped
-  end
-
-  def active_post_limit
-    code = Subscription.where(user: current_user, status: %w[active trialing]).order(created_at: :desc).pick(:plan_code) || "free"
-    { "free" => 1, "pro" => 10, "studio" => 50, "enterprise" => 9999 }.fetch(code, 1)
-  end
-
-  def moderation_flags
-    text = [params[:title], params[:description], params[:requirements]].join(" ").downcase
-    flags = []
-    flags << "Potential off-platform or fee language" if text.match?(/whatsapp|telegram|pay.*fee|registration fee|security deposit/)
-    flags << "Compensation not disclosed" if params[:salary].blank? && params[:compensationMin].blank? && params[:compensationMax].blank?
-    flags << "Description is very short" if params[:description].to_s.length < 80
-    flags
   end
 end

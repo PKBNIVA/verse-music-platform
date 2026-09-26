@@ -42,35 +42,50 @@ class ProviderContractsTest < ActiveSupport::TestCase
 
   test "Razorpay order sends integer paise with server-side Basic authentication" do
     with_env("RAZORPAY_KEY_ID" => "rzp_test_id", "RAZORPAY_KEY_SECRET" => "test-secret") do
-      transport = lambda do |url, &configure|
-        assert_equal "https://api.razorpay.com/v1/orders", url
-        request = fake_request
-        configure.call(request)
-        assert_equal "rzp_test_id:test-secret", Base64.decode64(request.headers.fetch("Authorization").delete_prefix("Basic "))
-        assert_equal({ "amount" => 12_345, "currency" => "INR", "receipt" => "qa-order", "notes" => {} }, JSON.parse(request.body))
-        Response.new(200, '{"id":"order_test"}')
+      stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+        stub.post("https://api.razorpay.com/v1/orders") do |env|
+          assert_equal "rzp_test_id:test-secret", Base64.decode64(env.request_headers.fetch("Authorization").delete_prefix("Basic "))
+          assert_equal({ "amount" => 12_345, "currency" => "INR", "receipt" => "qa-order", "notes" => {} }, JSON.parse(env.request_body))
+          assert_equal 12, env.request.timeout
+          [200, { "Content-Type" => "application/json" }, '{"id":"order_test"}']
+        end
       end
 
-      Faraday.stub(:post, transport) do
-        assert_equal "order_test", RazorpayGateway.new.create_order(amount_paise: 12_345, currency: "INR", receipt: "qa-order").fetch("id")
-      end
+      assert_equal "order_test", razorpay(stubs).create_order(amount_paise: 12_345, currency: "INR", receipt: "qa-order").fetch("id")
+      stubs.verify_stubbed_calls
     end
   end
 
   test "Razorpay server error is ambiguous so callers must reconcile before retrying" do
     with_env("RAZORPAY_KEY_ID" => "rzp_test_id", "RAZORPAY_KEY_SECRET" => "test-secret") do
-      Faraday.stub(:post, response_transport(503, '{"error":{"description":"Unavailable","code":"SERVER_ERROR"}}')) do
-        error = assert_raises(RazorpayGateway::GatewayError) do
-          RazorpayGateway.new.create_subscription(plan_id: "plan_test")
-        end
-        assert error.ambiguous?
-        assert_equal 503, error.http_status
-        assert_equal "SERVER_ERROR", error.code
+      stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+        stub.post("https://api.razorpay.com/v1/subscriptions") { [503, {}, '{"error":{"description":"Unavailable","code":"SERVER_ERROR"}}'] }
       end
+      error = assert_raises(RazorpayGateway::GatewayError) do
+        razorpay(stubs).create_subscription(plan_id: "plan_test")
+      end
+      assert error.ambiguous?
+      assert_equal 503, error.http_status
+      assert_equal "SERVER_ERROR", error.code
+    end
+  end
+
+  test "Razorpay lookups for lost create responses send list filters as query parameters" do
+    with_env("RAZORPAY_KEY_ID" => "rzp_test_id", "RAZORPAY_KEY_SECRET" => "test-secret") do
+      stubs = Faraday::Adapter::Test::Stubs.new do |stub|
+        stub.get("https://api.razorpay.com/v1/orders?receipt=dep_abc") { [200, {}, '{"entity":"collection","count":0,"items":[]}'] }
+        stub.get("https://api.razorpay.com/v1/subscriptions?count=100&from=100&skip=0&to=200") { [200, {}, '{"entity":"collection","count":0,"items":[]}'] }
+      end
+      gateway = razorpay(stubs)
+      assert_equal [], gateway.orders_by_receipt("dep_abc")["items"]
+      assert_equal [], gateway.subscriptions(from: Time.at(100), to: Time.at(200))["items"]
+      stubs.verify_stubbed_calls
     end
   end
 
   private
+
+  def razorpay(stubs) = RazorpayGateway.new(connection: Faraday.new { _1.adapter(:test, stubs) })
 
   def fake_request
     Struct.new(:headers, :body, :options).new({}, nil, Struct.new(:open_timeout, :timeout).new)
