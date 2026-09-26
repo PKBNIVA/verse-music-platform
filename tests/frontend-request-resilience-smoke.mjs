@@ -164,24 +164,73 @@ globalThis.fetch = async (_url, options) => {
 await assert.rejects(apiGet('/jobs', { signal: caller.signal }), (error) => error.name === 'AbortError');
 assert.equal(calls, 1);
 
+// File bodies go through XMLHttpRequest (upload progress events); a minimal fake records requests.
+const xhrRequests = [];
+let xhrRespond = () => ({ status: 201, body: { url: '/uploads/demo.mp3' } });
+globalThis.XMLHttpRequest = class {
+  constructor() { this.headers = {}; this.upload = {}; this.responseHeaders = { 'content-type': 'application/json' }; }
+  open(method, url) { this.method = method; this.url = url; }
+  setRequestHeader(name, value) { this.headers[name.toLowerCase()] = value; }
+  getResponseHeader(name) { return this.responseHeaders[name.toLowerCase()] ?? null; }
+  abort() { this.onabort?.(); }
+  send(body) {
+    this.body = body;
+    xhrRequests.push(this);
+    queueMicrotask(() => {
+      this.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 2 });
+      const { status, body: response } = xhrRespond(this);
+      this.status = status;
+      this.responseText = JSON.stringify(response);
+      this.onload?.();
+    });
+  }
+};
+
 // Local fallback uploads include a sanitized filename for safe server-side storage.
-let uploadHeaders;
+const fetchCalls = [];
 globalThis.fetch = async (url, options) => {
+  fetchCalls.push([String(url), options.method]);
   if (String(url).endsWith('/uploads/presign')) {
-    return new Response(JSON.stringify({ mode: 'local', uploadUrl: '/api/uploads/local' }), {
+    return new Response(JSON.stringify({ mode: 'proxied', uploadUrl: '/api/uploads/local' }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
   }
-  uploadHeaders = new Headers(options.headers);
-  return new Response(JSON.stringify({ url: '/uploads/demo.mp3' }), {
-    status: 200,
-    headers: { 'content-type': 'application/json' },
-  });
+  return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } });
 };
 const file = new File(['audio'], 'demo song?.mp3', { type: 'audio/mpeg' });
-assert.equal((await uploadMedia(file)).url, '/uploads/demo.mp3');
-assert.equal(uploadHeaders.get('x-filename'), 'demo_song_.mp3');
+const progress = [];
+assert.equal((await uploadMedia(file, (pct) => progress.push(pct))).url, '/uploads/demo.mp3');
+const uploadHeaders = xhrRequests.at(-1).headers;
+assert.equal(xhrRequests.at(-1).method, 'PUT');
+assert.equal(uploadHeaders['x-filename'], 'demo_song_.mp3');
+assert.equal(uploadHeaders['content-type'], 'audio/mpeg');
+assert.deepEqual(progress, [0, 50, 100]);
+
+// Server rejection of the streamed body surfaces the server's message and code.
+xhrRespond = () => ({ status: 422, body: { error: 'File contents do not match the declared type.', code: 'UPLOAD_REJECTED' } });
+await assert.rejects(uploadMedia(file), (error) => error instanceof ApiError && error.code === 'UPLOAD_REJECTED' && /do not match/.test(error.message));
+
+// Unsupported files are refused before any request.
+fetchCalls.length = 0;
+await assert.rejects(uploadMedia(new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' })), (error) => error.code === 'UNSUPPORTED_TYPE');
+assert.equal(fetchCalls.length, 0);
+
+// Direct mode: POST policy form (fields first, file last) to the bucket, then server verification.
+globalThis.fetch = async (url, options) => {
+  fetchCalls.push([String(url), options.method]);
+  const body = String(url).endsWith('/uploads/presign')
+    ? { mode: 'direct', id: 'upl_1', method: 'POST', uploadUrl: 'https://bucket.example.test', fields: { key: 'uploads/u/k/demo.mp3', policy: 'p' }, headers: {} }
+    : { url: 'https://media.example.test/uploads/u/k/demo.mp3', upload: { id: 'upl_1', contentType: 'audio/mpeg', byteSize: 5 } };
+  return new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
+};
+xhrRespond = () => ({ status: 201, body: {} });
+const direct = await uploadMedia(file);
+assert.equal(direct.url, 'https://media.example.test/uploads/u/k/demo.mp3');
+assert.equal(direct.id, 'upl_1');
+assert.equal(xhrRequests.at(-1).method, 'POST');
+assert.deepEqual([...xhrRequests.at(-1).body.keys()], ['key', 'policy', 'file']);
+assert.ok(fetchCalls.some(([url, method]) => url.endsWith('/uploads/upl_1/complete') && method === 'POST'));
 
 // Blocked site data: every storage access throws, but the session still works in memory.
 const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };

@@ -264,27 +264,110 @@ export const apiPut = <T = any>(path: string, body?: unknown, options: ApiOption
 export const apiPatch = <T = any>(path: string, body?: unknown, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'PATCH', body: JSON.stringify(body ?? {}) });
 export const apiDelete = <T = any>(path: string, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'DELETE' });
 
-export async function uploadMedia(file: File, onProgress?: (pct: number) => void): Promise<{ url: string; metadata?: any; thumbnailUrl?: string; waveformUrl?: string }> {
-  const prep = await apiPost<any>('/uploads/presign', { filename: file.name, contentType: file.type, size: file.size });
+// ---- Uploads -------------------------------------------------------------
+// Mirrors backend MediaTypeSniffer / Upload::MAX_SIZE. The server re-checks the real
+// bytes; these checks only give the user an immediate, specific error.
+export const UPLOAD_MAX_BYTES = 100 * 1024 * 1024;
+export const UPLOAD_ACCEPT = 'audio/mpeg,audio/wav,video/mp4,image/jpeg,image/png,image/webp,application/pdf,.mp3,.wav,.mp4,.jpg,.jpeg,.png,.webp,.pdf';
+const UPLOAD_TYPE_ALIASES: Record<string, string> = {
+  'audio/mp3': 'audio/mpeg', 'audio/x-wav': 'audio/wav', 'audio/wave': 'audio/wav', 'audio/vnd.wave': 'audio/wav',
+  'image/jpg': 'image/jpeg', 'image/pjpeg': 'image/jpeg',
+};
+const UPLOAD_TYPES_BY_EXTENSION: Record<string, string> = {
+  mp3: 'audio/mpeg', wav: 'audio/wav', mp4: 'video/mp4', jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf',
+};
+const UPLOAD_TYPES = new Set(Object.values(UPLOAD_TYPES_BY_EXTENSION));
+
+export type UploadResult = { id?: string; url: string; contentType?: string; byteSize?: number; metadata?: any; thumbnailUrl?: string; waveformUrl?: string };
+export type UploadOptions = { onProgress?: (pct: number) => void; signal?: AbortSignal };
+
+/** Canonical upload MIME type for a file, or null when the platform does not accept it. */
+export function uploadContentType(file: File): string | null {
+  const declared = (file.type || '').toLowerCase();
+  const canonical = UPLOAD_TYPE_ALIASES[declared] || declared;
+  if (UPLOAD_TYPES.has(canonical)) return canonical;
+  // Some browsers/OSes report an empty or vendor type; fall back to the extension.
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  return !declared || declared === 'application/octet-stream' ? UPLOAD_TYPES_BY_EXTENSION[extension] || null : null;
+}
+
+/** Throws a user-facing ApiError when the file cannot be uploaded at all. */
+export function validateUploadFile(file: File) {
+  if (!uploadContentType(file)) throw new ApiError('Unsupported file type. Upload MP3, WAV, MP4, JPEG, PNG, WebP or PDF.', 422, 'UNSUPPORTED_TYPE');
+  if (file.size === 0) throw new ApiError('This file is empty.', 422, 'FILE_EMPTY');
+  if (file.size > UPLOAD_MAX_BYTES) throw new ApiError(`File is too large (${Math.ceil(file.size / 1024 / 1024)} MB). The limit is 100 MB.`, 422, 'FILE_TOO_LARGE');
+}
+
+type XhrResult = { status: number; data: any; requestId?: string };
+
+// fetch() has no upload progress events, so file bodies go through XMLHttpRequest.
+function sendWithProgress(method: string, url: string, body: Document | XMLHttpRequestBodyInit, headers: Record<string, string>, options: UploadOptions): Promise<XhrResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open(method, url);
+    xhr.timeout = 30 * 60_000;
+    Object.entries(headers).forEach(([name, value]) => xhr.setRequestHeader(name, value));
+    xhr.upload.onprogress = (event) => {
+      if (event.lengthComputable) options.onProgress?.(Math.min(99, Math.round((event.loaded / event.total) * 100)));
+    };
+    const onAbort = () => xhr.abort();
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    const done = () => options.signal?.removeEventListener('abort', onAbort);
+    xhr.onload = () => {
+      done();
+      let data: any = {};
+      try { data = xhr.responseText && xhr.getResponseHeader('content-type')?.includes('json') ? JSON.parse(xhr.responseText) : {}; } catch { data = {}; }
+      resolve({ status: xhr.status, data, requestId: xhr.getResponseHeader('x-request-id') || data?.requestId });
+    };
+    xhr.onerror = () => { done(); reject(new ApiError('Upload interrupted. Check your connection and retry.', 0, 'NETWORK_ERROR')); };
+    xhr.ontimeout = () => { done(); reject(new ApiError('Upload timed out. Please retry.', 0, 'REQUEST_TIMEOUT')); };
+    xhr.onabort = () => { done(); reject(new ApiError('Upload cancelled.', 0, 'UPLOAD_CANCELLED')); };
+    if (options.signal?.aborted) return xhr.abort();
+    xhr.send(body);
+  });
+}
+
+/**
+ * Uploads a work-sample file and resolves once the server has verified it.
+ * Direct mode: presign -> browser POST/PUT to the bucket -> /uploads/:id/complete.
+ * Proxied mode: streamed PUT to the API, which verifies before storing.
+ */
+export async function uploadMedia(file: File, onProgressOrOptions?: ((pct: number) => void) | UploadOptions): Promise<UploadResult> {
+  const options: UploadOptions = typeof onProgressOrOptions === 'function' ? { onProgress: onProgressOrOptions } : onProgressOrOptions || {};
+  validateUploadFile(file);
+  const contentType = uploadContentType(file)!;
+  options.onProgress?.(0);
+  const prep = await apiPost<any>('/uploads/presign', { filename: file.name, contentType, size: file.size }, { signal: options.signal });
+
   if (prep.mode === 'direct') {
-    const response = await fetchWithTimeout(prep.uploadUrl, {
-      method: prep.method || 'PUT', headers: prep.headers || { 'Content-Type': file.type }, body: file, timeoutMs: 120_000,
-    });
-    if (!response.ok) throw new ApiError('Upload failed', response.status, undefined, requestIdFor(response));
-    onProgress?.(100);
-    return { url: prep.publicUrl || prep.url };
+    let body: XMLHttpRequestBodyInit = file;
+    if ((prep.method || 'PUT').toUpperCase() === 'POST') {
+      const form = new FormData();
+      Object.entries(prep.fields || {}).forEach(([name, value]) => form.append(name, String(value)));
+      form.append('file', file); // S3 requires the file to be the last field.
+      body = form;
+    }
+    const sent = await sendWithProgress(prep.method || 'PUT', prep.uploadUrl, body, prep.method === 'POST' ? {} : prep.headers || { 'Content-Type': contentType }, options);
+    if (sent.status < 200 || sent.status >= 300) {
+      await apiDelete(`/uploads/${prep.id}`, { skipAuthRedirect: true }).catch(() => undefined);
+      throw new ApiError(sent.status === 403 ? 'Storage refused the file (size or type did not match, or the link expired). Please retry.' : `Upload failed (${sent.status}). Please retry.`, sent.status, 'UPLOAD_FAILED');
+    }
+    const done = await apiPost<any>(`/uploads/${prep.id}/complete`, {}, { signal: options.signal });
+    options.onProgress?.(100);
+    return { id: done.upload?.id || prep.id, url: done.url, contentType: done.upload?.contentType, byteSize: done.upload?.byteSize };
   }
 
   const token = readToken();
   const safeFilename = file.name.replace(/[^A-Za-z0-9_.-]/g, '_') || 'upload';
-  const headers: Record<string, string> = { 'Content-Type': file.type, 'X-Filename': safeFilename };
+  const headers: Record<string, string> = { 'Content-Type': contentType, 'X-Filename': safeFilename };
   if (token) headers.Authorization = `Bearer ${token}`;
   const uploadUrl = prep.uploadUrl.startsWith('http') ? prep.uploadUrl : `${API_BASE.replace(/\/api\/?$/, '')}${prep.uploadUrl}`;
-  const response = await fetchWithTimeout(uploadUrl, { method: 'PUT', headers, credentials: 'omit', body: file, timeoutMs: 120_000 });
-  const data = response.status === 204 ? {} : await response.json().catch(() => ({}));
-  const requestId = requestIdFor(response, data);
-  if (response.status === 401) redirectAfterUnauthorized('/uploads/local', token);
-  if (!response.ok) throw new ApiError(data.error || 'Upload failed', response.status, data.code, requestId);
-  onProgress?.(100);
-  return data;
+  const sent = await sendWithProgress('PUT', uploadUrl, file, headers, options);
+  if (sent.status === 401) redirectAfterUnauthorized('/uploads/local', token);
+  if (sent.status < 200 || sent.status >= 300) throw new ApiError(sent.data.error || `Upload failed (${sent.status})`, sent.status, sent.data.code, sent.requestId);
+  options.onProgress?.(100);
+  return { ...sent.data, id: sent.data.id, url: sent.data.url, contentType: sent.data.upload?.contentType, byteSize: sent.data.upload?.byteSize };
 }
+
+/** Discards an uploaded file that was never saved to a work sample. */
+export const discardUpload = (id: string) => apiDelete(`/uploads/${id}`, { skipAuthRedirect: true });
