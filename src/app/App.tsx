@@ -4,6 +4,7 @@ import { router } from './routes';
 import { AuthProvider } from './lib/authContext';
 import { Toaster } from './components/ui/sonner';
 import { AppErrorBoundary } from './components/ExperienceStates';
+import { PlanLimitPrompt } from './components/PlanLimitPrompt';
 
 export default function App() {
   return (
@@ -13,6 +14,7 @@ export default function App() {
         <AuthProvider>
           <RouterProvider router={router} />
           <Toaster position="top-right" richColors closeButton />
+          <PlanLimitPrompt />
         </AuthProvider>
       </MotionConfig>
     </AppErrorBoundary>

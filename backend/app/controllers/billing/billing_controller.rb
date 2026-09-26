@@ -275,8 +275,11 @@ module Billing
       Time.current
     end
 
+    # A Razorpay subscription that never received a provider id cannot be authorised or paid
+    # (its create failed or is awaiting reconciliation), so it is not shown as the current plan.
     def current_subscription
       Subscription.where(user: current_user, status: %w[active trialing pending past_due])
+        .where.not(provider: "razorpay", status: "pending", provider_subscription_id: nil)
         .order(Arel.sql("CASE status WHEN 'active' THEN 0 WHEN 'trialing' THEN 1 WHEN 'past_due' THEN 2 ELSE 3 END"), created_at: :desc).first
     end
     def effective_plan(_sub = nil) = Entitlements.for(current_user).plan_code

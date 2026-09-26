@@ -35,9 +35,12 @@ class RazorpaySimulator
       raise Refused, "The Razorpay simulator is disabled (set RAZORPAY_SIMULATOR=true with an rzp_test_ key)" unless enabled?
     end
 
+    # Kept on the application config (one store per process). A code reload starts a fresh
+    # store so edited simulator code always runs; restart the API to reset state on purpose.
     def instance
       holder = Rails.application.config.x
-      holder.razorpay_simulator ||= new
+      current = holder.razorpay_simulator
+      current.instance_of?(self) ? current : (holder.razorpay_simulator = new)
     end
 
     def reset! = Rails.application.config.x.razorpay_simulator = new
@@ -397,9 +400,13 @@ class RazorpaySimulator
     raise Error.new(400, "Subscription is in #{sub["status"]} status; expected #{allowed.join("/")}.", reason: "invalid_state")
   end
 
+  # Razorpay timestamps are whole seconds and real lifecycle events are spread over time.
+  # Successive simulated events get strictly increasing timestamps so that driving a whole
+  # lifecycle within one second still arrives in a well-defined order.
   def event(name, **entities)
+    @event_clock = [now, @event_clock.to_i + 1].max
     { "entity" => "event", "account_id" => "acc_Simulator000001", "event" => name, "contains" => entities.keys.map(&:to_s),
-      "payload" => entities.to_h { |key, value| [key.to_s, { "entity" => deep(value) }] }, "created_at" => now }
+      "payload" => entities.to_h { |key, value| [key.to_s, { "entity" => deep(value) }] }, "created_at" => @event_clock }
   end
 
   def sign(data) = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_KEY_SECRET"), data)

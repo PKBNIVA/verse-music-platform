@@ -74,6 +74,14 @@ class RequestDeadlineError extends Error {
 
 export type ApiOptions = RequestInit & { timeoutMs?: number; skipAuthRedirect?: boolean };
 
+// Server-enforced plan limits (402). Pages still show their own error; the app-level
+// PlanLimitPrompt listens for this event and offers the upgrade path.
+export const PLAN_LIMIT_EVENT = 'verse:plan-limit';
+const PLAN_LIMIT_CODES = new Set(['PLAN_LIMIT_REACHED', 'PLAN_LIMIT']);
+function announcePlanLimit(message?: string) {
+  try { window.dispatchEvent(new CustomEvent(PLAN_LIMIT_EVENT, {detail: {message}})); } catch { /* non-browser */ }
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -185,7 +193,10 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       const data = await response.json().catch(() => ({}));
       const requestId = requestIdFor(response, data);
       if (response.status === 401) redirectAfterUnauthorized(path, token, skipAuthRedirect);
-      if (!response.ok) throw new ApiError(data.error || `Request failed (${response.status})`, response.status, data.code, requestId);
+      if (!response.ok) {
+        if (response.status === 402 && PLAN_LIMIT_CODES.has(data.code)) announcePlanLimit(data.error);
+        throw new ApiError(data.error || `Request failed (${response.status})`, response.status, data.code, requestId);
+      }
       return data;
     } catch (error) {
       if (error instanceof ApiError) throw error;
