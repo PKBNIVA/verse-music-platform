@@ -4,6 +4,30 @@ const DEFAULT_TIMEOUT_MS = 12_000;
 const MIN_RETRY_ATTEMPT_MS = 250;
 const RETRYABLE_GET_STATUSES = new Set([429, 502, 503, 504]);
 let authRedirectStarted = false;
+const TOKEN_KEY = 'verse_access_token';
+const RETURN_TO_KEY = 'verse_return_to';
+// Browsers that block site data throw on any sessionStorage access; keep the
+// session usable for this page load instead of failing every request.
+const memorySession = new Map<string, string>();
+
+function readSession(key: string) {
+  try {
+    return sessionStorage.getItem(key);
+  } catch {
+    return memorySession.get(key) ?? null;
+  }
+}
+
+function writeSession(key: string, value: string | null) {
+  if (value === null) memorySession.delete(key);
+  else memorySession.set(key, value);
+  try {
+    if (value === null) sessionStorage.removeItem(key);
+    else sessionStorage.setItem(key, value);
+  } catch {
+    // The in-memory copy above is the fallback.
+  }
+}
 
 class RequestDeadlineError extends Error {
   constructor() {
@@ -33,7 +57,7 @@ function requestIdFor(response: Response, data?: any) {
 }
 
 function redirectAfterUnauthorized(path: string, skipRedirect = false) {
-  const hadSession = Boolean(sessionStorage.getItem('verse_access_token'));
+  const hadSession = Boolean(readSession(TOKEN_KEY));
   setAccessToken(null);
   if (!hadSession || skipRedirect || path.startsWith('/auth/') || authRedirectStarted) return;
 
@@ -41,7 +65,7 @@ function redirectAfterUnauthorized(path: string, skipRedirect = false) {
   if (!/^\/(jobseeker|employer|admin)(\/|$)/.test(window.location.pathname)) return;
 
   authRedirectStarted = true;
-  sessionStorage.setItem('verse_return_to', currentPath);
+  writeSession(RETURN_TO_KEY, currentPath);
   const role = window.location.pathname.split('/')[1] || 'jobseeker';
   window.location.replace(`/auth/${role}`);
 }
@@ -91,7 +115,7 @@ async function fetchWithTimeout(url: string, options: ApiOptions) {
 export async function api<T = any>(path: string, options: ApiOptions = {}): Promise<T> {
   const headers = new Headers(options.headers || {});
   if (options.body !== undefined && !(options.body instanceof FormData)) headers.set('Content-Type', 'application/json');
-  const token = sessionStorage.getItem('verse_access_token');
+  const token = readSession(TOKEN_KEY);
   if (token) headers.set('Authorization', `Bearer ${token}`);
 
   const method = (options.method || 'GET').toUpperCase();
@@ -150,15 +174,22 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
 
 export function setAccessToken(token?: string | null) {
   if (token) {
-    sessionStorage.setItem('verse_access_token', token);
+    writeSession(TOKEN_KEY, token);
     authRedirectStarted = false;
   } else {
-    sessionStorage.removeItem('verse_access_token');
+    writeSession(TOKEN_KEY, null);
   }
 }
 
 export function hasAccessToken() {
-  return Boolean(sessionStorage.getItem('verse_access_token'));
+  return Boolean(readSession(TOKEN_KEY));
+}
+
+/** Returns and clears the protected page saved before a forced sign-in. */
+export function consumeReturnTo() {
+  const path = readSession(RETURN_TO_KEY);
+  writeSession(RETURN_TO_KEY, null);
+  return path;
 }
 
 export const apiGet = <T = any>(path: string, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'GET' });
@@ -178,7 +209,7 @@ export async function uploadMedia(file: File, onProgress?: (pct: number) => void
     return { url: prep.publicUrl || prep.url };
   }
 
-  const token = sessionStorage.getItem('verse_access_token');
+  const token = readSession(TOKEN_KEY);
   const safeFilename = file.name.replace(/[^A-Za-z0-9_.-]/g, '_') || 'upload';
   const headers: Record<string, string> = { 'Content-Type': file.type, 'X-Filename': safeFilename };
   if (token) headers.Authorization = `Bearer ${token}`;

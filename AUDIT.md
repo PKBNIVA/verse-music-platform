@@ -28,22 +28,26 @@ Labels: **R** reproduced locally · **V** verified in code · **I** inferred · 
   checksum, restore into a scratch DB, then schedule encrypted off-platform dumps or buy PITR.
 
 ### P1
-- **P1-1 (R)** Eight pages use `useEffect(load, [])` where `load` returns a Promise; React calls the
-  Promise as the effect cleanup on unmount → "Unexpected Application Error: r is not a function".
-  Pages: Bookings, SavedJobs, Portfolio, ApplicationTracking, JobDetails, EmployerDashboard,
-  EmployerApplications, JobAlerts (`src/app/pages/*`). Reproduced on the production build;
-  control pages unaffected.
-- **P1-2 (R)** Admin verification approval and report resolution always raise
+- **P1-1 (R, fixed in #35)** Seven pages use `useEffect(load, [])` where `load` returns a Promise;
+  React calls the Promise as the effect cleanup on unmount → "Unexpected Application Error: r is not
+  a function". Pages: Bookings, SavedJobs, Portfolio, ApplicationTracking, JobDetails,
+  EmployerDashboard, EmployerApplications. (JobAlerts was initially listed but its loader returns
+  nothing and does not crash.) Reproduced on the production build; control pages unaffected.
+- **P1-2 (R, fixed in #35)** Admin verification approval and report resolution always raise
   `ActiveModel::UnknownAttributeError` (`reviewed_by:`/`resolved_by:` vs `*_id` columns) in
   `backend/app/controllers/admin/verifications_controller.rb` and `admin/reports_controller.rb`.
 - **P1-3 (R)** `verification_requests.evidence_url` is NOT NULL (and `kind` defaults to
   `"pending"`) in `20260918000000_create_verse_schema.rb:126`; a request without evidence returns 500.
-- **P1-4 (V/I)** Sign-in reliability (real-user complaint not yet reproduced):
+- **P1-4 (V/I, partly addressed in #35)** Sign-in reliability (real-user complaint not yet reproduced).
+  #35 removes the login-form length rule, keeps the session through timeouts/outages (only 401/403
+  end it), survives blocked browser storage, and restores the return-to page. Still open: per-tab
+  `sessionStorage` token, 5-session cap, IP-only throttle, and the real account's data. Original
+  findings:
   login form enforces `minLength={10}` (`AuthPage.tsx:50`); login throttle keyed by IP only, counts
   successes, memory_store, no `trusted_proxies` (`application_controller.rb:90`); token in
   `sessionStorage` (per tab) with a 5-session cap (`auth_controller.rb:87`); any `/me` failure
   clears the token (`authContext.tsx`); blocked storage throws before `try` (`api.ts:94`).
-- **P1-5 (V)** CSP in `vercel.json`: `frame-src` allows only Razorpay (blocks YouTube/Spotify/
+- **P1-5 (V, fixed in #35 for embeds and R2/S3 hosts)** CSP in `vercel.json`: `frame-src` allows only Razorpay (blocks YouTube/Spotify/
   SoundCloud work samples); `connect-src` omits the object-storage origin (uploads fail once
   `AWS_BUCKET` is set).
 
@@ -76,12 +80,12 @@ Mixed snake/camel API casing; `window.prompt` workflows; ~46 unlinked labels; ~2
 nested in links; ~25 unused dependencies; motion ignores reduced-motion; `verse_return_to` never
 read; emails and Razorpay signatures not filtered from logs; `fitScore` never shown.
 
-## Proposed first work package
+## First work package (PR #35)
 
-Branch `claude/fix-unmount-crash-admin-500s`: fix P1-1 (8 one-line effect fixes) and P1-2
-(`reviewed_by_id`/`resolved_by_id` + optional `belongs_to`), with a Playwright navigate-away
-regression spec and Rails integration tests for admin verification/report updates. No migration,
-no API contract change. P1-3 follows in its own PR with a reviewed, reversible migration.
+Fixes P1-1, P1-2, P1-5 and the no-regret parts of P1-4, with regression tests
+(`tests/e2e/authenticated-resilience.spec.ts`, admin verification/report integration tests).
+No migration and no API contract change. P1-3 follows in its own PR with a reviewed, reversible
+migration.
 
 ## Access checklist (tokens live in environment settings, never in chat or the repo)
 

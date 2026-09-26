@@ -13,7 +13,7 @@ const money=(currency:string,value:any)=>`${currency||'INR'} ${Number(value||0).
 export default function Bookings(){
   const[rows,setRows]=useState<any[]>([]),[quote,setQuote]=useState<any>(null),[payments,setPayments]=useState<Record<string,any[]>>({}),[paymentOpen,setPaymentOpen]=useState<Record<string,boolean>>({});
   const load=()=>apiGet<any>('/bookings').then(d=>setRows(d.bookings||[]));
-  useEffect(load,[]);
+  useEffect(()=>{load()},[]);
   async function status(id:string,s:string){try{await apiPost(`/bookings/${id}/status`,{status:s});await load()}catch(e:any){toast.error(e.message)}}
   async function sendQuote(){try{await apiPost(`/bookings/${quote.id}/quote`,{performanceFee:Number(quote.performanceFee),travelFee:Number(quote.travelFee)||0,productionFee:Number(quote.productionFee)||0,otherFee:Number(quote.otherFee)||0,currency:quote.currency||'INR',depositPercent:Number(quote.depositPercent)||50,validUntil:quote.validUntil||null,inclusions:quote.inclusions,exclusions:quote.exclusions,cancellationTerms:quote.cancellationTerms});toast.success('Quote sent');setQuote(null);await load()}catch(e:any){toast.error(e.message)}}
   async function togglePayments(id:string){if(paymentOpen[id]){setPaymentOpen(x=>({...x,[id]:false}));return}try{const d=await apiGet<any>(`/bookings/${id}/payments`);setPayments(x=>({...x,[id]:d.payments||[]}));setPaymentOpen(x=>({...x,[id]:true}))}catch(e:any){toast.error(e.message)}}

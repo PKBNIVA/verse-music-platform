@@ -5,7 +5,7 @@ module Admin
       return render_error("Invalid verification status.", :bad_request) unless %w[approved rejected].include?(params[:status])
       request_record = VerificationRequest.find(params[:id])
       request_record.transaction do
-        request_record.update!(status: params[:status], reviewed_by: current_user.id, reviewed_at: Time.current)
+        request_record.update!(status: params[:status], reviewed_by_id: current_user.id, reviewed_at: Time.current)
         request_record.user.profile&.update!(verified: true) if params[:status] == "approved"
       end
       Notification.create!(user: request_record.user, kind: "verification", title: "Verification update", body: "Your verification request was #{params[:status]}.")
