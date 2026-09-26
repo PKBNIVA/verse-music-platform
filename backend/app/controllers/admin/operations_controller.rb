@@ -6,6 +6,8 @@ module Admin
 
     def reconcile_billing_attempt
       attempt = BillingAttempt.find(params[:id])
+      return render_error("Razorpay is not configured for this environment.", :service_unavailable, "PAYMENTS_NOT_CONFIGURED") unless RazorpayConfig.usable?
+
       BillingAttemptReconciler.new.call(attempt)
       audit!("admin.billing_attempt.reconcile", attempt)
       render json: { attempt: }

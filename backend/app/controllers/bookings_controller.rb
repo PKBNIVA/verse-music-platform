@@ -1,4 +1,5 @@
 class BookingsController < ApplicationController
+  PAYMENTS_LIMIT = 100
   before_action -> { authenticate!("jobseeker", "employer") }
 
   def index
@@ -141,7 +142,7 @@ class BookingsController < ApplicationController
 
   def payments
     booking = BookingRequest.includes(:act).find(params[:id]); return render_error("Booking not found", :not_found) unless [booking.requester_id, booking.act.owner_id].include?(current_user.id)
-    render json: { payments: booking.booking_payments.order(created_at: :desc) }
+    render json: { payments: booking.booking_payments.order(created_at: :desc).limit(PAYMENTS_LIMIT) }
   end
 
   private

@@ -80,7 +80,7 @@ of each controlled test before declaring an integration operational.
 
 | Provider | Railway environment names | Controlled verification |
 | --- | --- | --- |
-| Razorpay | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_STUDIO` | Configure live plans and the webhook URL `https://verse-music-platform-production.up.railway.app/api/billing/webhook/razorpay`. Complete a controlled checkout, authenticated webhook, cancellation, and reconciliation check. Keep test and live credentials separate. |
+| Razorpay | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_STUDIO` | Follow the **Payments (Razorpay) go-live checklist** below: dashboard field mapping, webhook URL `https://verse-music-platform-production.up.railway.app/api/billing/webhook/razorpay` and events, automatic capture, test-mode rehearsal, then live switch. Keep test and live credentials separate. |
 | Brevo | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Verify the sending domain and sender in Brevo, then deliver a verification and reset email to controlled addresses. Check provider acceptance, inbox receipt, bounce status, and the resulting links. |
 | S3-compatible storage | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT_URL_S3`, `AWS_PUBLIC_BASE_URL`, optional `AWS_UPLOAD_METHOD` (see "Object storage — Cloudflare R2") | Upload, read, and delete a controlled image and audio file through the browser. Verify object durability, access policy, MIME/size rejection, CORS, and cleanup. |
 
@@ -166,6 +166,89 @@ Checklist:
    `/rails/active_storage/...` work samples have been re-uploaded or accepted as lost; the
    Disk files live only on that volume.
 
+## Payments (Razorpay) go-live checklist
+
+Owner steps, in order. Nothing here is automated; tick each item and record the date.
+
+### 1. Railway variables ← Razorpay dashboard
+
+Set these on the Railway **API service** (production environment). Never in Vercel.
+
+| Railway variable | Razorpay dashboard field (Live mode unless stated) |
+| --- | --- |
+| `RAZORPAY_KEY_ID` | Account & Settings → API Keys → **Key Id** (`rzp_live_…`) |
+| `RAZORPAY_KEY_SECRET` | Account & Settings → API Keys → **Key Secret** (shown once when the key is generated; regenerate if lost) |
+| `RAZORPAY_WEBHOOK_SECRET` | Account & Settings → Webhooks → your webhook → **Secret** (you choose it; use `openssl rand -hex 32`) |
+| `RAZORPAY_PLAN_PRO` | Subscriptions → Plans → the Pro plan's **Plan ID** (`plan_…`): Monthly, every 1 month, **INR 2,499.00** |
+| `RAZORPAY_PLAN_STUDIO` | Subscriptions → Plans → the Studio plan's **Plan ID**: Monthly, every 1 month, **INR 5,999.00** |
+| `RAZORPAY_ALLOW_TEST_MODE` | not a dashboard field: set `true` **only** during the test-mode rehearsal below, then delete |
+| `RAZORPAY_SIMULATOR` | must **not** exist on Railway (it is ignored in production and `GET /api/admin/health` reports `checks.payments.ok: false` if present) |
+
+The plan amounts must match `Billing::BillingController::PLANS` (the server sends only the
+plan id; Razorpay charges what the plan says). Test-mode and live-mode keys, plans and
+webhooks are separate objects in Razorpay: create each in both modes.
+
+### 2. Webhook
+
+Account & Settings → Webhooks → Add New Webhook (in each mode):
+
+- Webhook URL: `https://verse-music-platform-production.up.railway.app/api/billing/webhook/razorpay`
+- Secret: the value of `RAZORPAY_WEBHOOK_SECRET`
+- Active events: `subscription.authenticated`, `subscription.activated`, `subscription.charged`,
+  `subscription.pending`, `subscription.halted`, `subscription.paused`, `subscription.resumed`,
+  `subscription.cancelled`, `subscription.completed`, `payment.captured`, `payment.failed`,
+  `refund.processed`. (Other events are recorded and ignored.)
+
+### 3. Payment capture
+
+Account & Settings → Payment Capture → **Automatic capture** (immediate). Deposit
+confirmation requires a `captured` payment; an authorised-but-uncaptured payment is refused
+and Razorpay auto-refunds it later.
+
+### 4. Test-mode rehearsal on Railway (before any live key)
+
+1. Set the test-mode `rzp_test_` key id/secret, test-mode plan ids, the test-mode webhook
+   secret, and `RAZORPAY_ALLOW_TEST_MODE=true`. Redeploy.
+2. `GET /api/admin/health` → `checks.payments.ok` is true with `mode: "test"`, and the Billing page shows
+   the **Test mode** banner.
+3. As a throwaway employer: Billing → Pro → Start free trial → complete checkout with a
+   Razorpay test card that supports recurring payments. The page moves to **Free trial**
+   within seconds; Admin → `GET /api/admin/billing-events` shows `subscription.authenticated`
+   with `processingResult: applied`.
+4. Cancel from the Billing page (trial cancellation is immediate) and confirm the Razorpay
+   dashboard shows the subscription cancelled.
+5. Booking deposit: accept a quote, pay the deposit with a test card → **Deposit paid ·
+   booking confirmed**; repeat with a failing test card → decline message and retry works.
+6. Refund that deposit from the Razorpay dashboard → `refund.processed` arrives and the
+   booking shows **Deposit refunded**.
+7. `GET /api/admin/billing-attempts` has no `pending`/`ambiguous` rows older than 30 minutes.
+
+### 5. Go live
+
+Replace the four Razorpay values with live-mode ones, **delete** `RAZORPAY_ALLOW_TEST_MODE`,
+redeploy, confirm the Test mode banner is gone, then make one real low-value deposit on a
+controlled booking and refund it from the dashboard. Record the outcome here.
+
+### Local rehearsal without credentials (Razorpay simulator)
+
+`RAZORPAY_SIMULATOR=true` with any `rzp_test_` key makes the API answer Razorpay calls from
+`RazorpaySimulator` (in-process, no network) and replaces checkout.js with a simulated modal
+(success / decline / close) whose handler payload is signed server-side. It is refused in
+production and with live keys; its dev endpoints (`/api/dev/razorpay/*`: checkout,
+`subscriptions/:id/{activate,charge,pending,halt,pause,resume,cancel,complete}`,
+`payments/:id/refund`, `webhooks`) are not routed there. Simulator state is in memory:
+restarting the API or reloading code clears it.
+
+```bash
+RAZORPAY_SIMULATOR=true RAZORPAY_KEY_ID=rzp_test_simulator RAZORPAY_KEY_SECRET=local_sim_secret \
+RAZORPAY_WEBHOOK_SECRET=local_sim_webhook RAZORPAY_PLAN_PRO=plan_SimPro RAZORPAY_PLAN_STUDIO=plan_SimStudio \
+  bin/rails server -p 3000            # in backend/, development env
+QA_PAYMENTS_SIMULATOR=true QA_API_BASE_URL=http://127.0.0.1:3000/api npx playwright test tests/e2e/payments-simulator.spec.ts
+```
+
+The same flows run in `backend/test/integration/razorpay_simulator_flows_test.rb` on every
+`bin/rails test`.
+
 ## Release gate
 
 Every release must pass:
@@ -209,7 +292,8 @@ After deployment verify:
 3. Candidate discovery, save, application, messaging, and availability.
 4. Employer posting, application review, workspace, booking, and notifications.
 5. Admin moderation and audit logging.
-6. One controlled payment, webhook, refund, and reconciliation cycle after Razorpay is live.
+6. One controlled payment, webhook, refund, and reconciliation cycle after Razorpay is live
+   (steps in the Payments go-live checklist).
 7. One real transactional email after Brevo is live.
 8. One upload/read/delete lifecycle after object storage is live.
 

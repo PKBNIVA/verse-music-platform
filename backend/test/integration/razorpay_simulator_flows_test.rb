@@ -405,6 +405,30 @@ class RazorpaySimulatorFlowsTest < ActionDispatch::IntegrationTest
     assert_equal "created", simulator.subscription(sub_id)["status"]
   end
 
+  test "admin reconcile fails closed with 503 when Razorpay is not configured" do
+    sub = Subscription.create!(user: @user, plan_code: "pro", provider: "razorpay", status: "pending")
+    attempt = BillingAttempt.create!(user: @user, operation: "subscription_create", provider: "razorpay", idempotency_key: "unconfigured-#{SecureRandom.hex(4)}", state: "ambiguous", resource_type: "Subscription", resource_id: sub.id)
+    _admin, admin_token = create_user("Recon Admin", "admin")
+    %w[RAZORPAY_KEY_ID RAZORPAY_KEY_SECRET RAZORPAY_SIMULATOR].each { ENV.delete(_1) }
+
+    post "/api/admin/billing-attempts/#{attempt.id}/reconcile", headers: { "Authorization" => "Bearer #{admin_token}" }, as: :json
+
+    assert_response :service_unavailable
+    assert_equal "PAYMENTS_NOT_CONFIGURED", response.parsed_body["code"]
+    assert_equal "ambiguous", attempt.reload.state
+    error = assert_raises(RazorpayGateway::GatewayError) { RazorpayGateway.new }
+    assert_equal "not_configured", error.code
+  end
+
+  test "booking payment history is bounded" do
+    _requester, booking = accepted_booking(requester: @user)
+    quote = booking.booking_quotes.first
+    (BookingsController::PAYMENTS_LIMIT + 3).times { booking.booking_payments.create!(booking_quote: quote, payer: @user, kind: "deposit", amount: 10, currency: "INR", provider: "internal", status: "failed") }
+    get "/api/bookings/#{booking.id}/payments", headers: auth
+    assert_response :success
+    assert_equal BookingsController::PAYMENTS_LIMIT, response.parsed_body["payments"].size
+  end
+
   test "admins can read billing events; other users cannot" do
     sub_id = start_checkout("pro")
     deliver_all(simulate_checkout(subscriptionId: sub_id, outcome: "success").fetch("webhooks"))

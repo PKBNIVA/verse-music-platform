@@ -6,8 +6,11 @@ class RazorpayGateway
   # `connection:` lets contract tests supply a Faraday connection with a stub adapter.
   def initialize(connection: nil)
     @connection = connection
-    @key_id = ENV.fetch("RAZORPAY_KEY_ID")
-    @key_secret = ENV.fetch("RAZORPAY_KEY_SECRET")
+    @key_id = ENV["RAZORPAY_KEY_ID"].to_s.strip
+    @key_secret = ENV["RAZORPAY_KEY_SECRET"].to_s
+    if @key_id.empty? || @key_secret.empty?
+      raise GatewayError.new("Razorpay is not configured for this environment", code: "not_configured")
+    end
     unless RazorpayConfig.key_mode_allowed?(@key_id)
       raise GatewayError.new("Razorpay is not configured for this environment", code: "key_mode_rejected")
     end
