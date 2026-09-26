@@ -33,7 +33,6 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
   ].freeze
 
   N_PLUS_ONE = {
-    "/api/urgent-requests" => "OWNER: urgent-requests — per-row UrgentRequestResponse.exists? and requester.profile (urgent_requests_controller.rb:12; includes(:requester) lacks :profile)",
     "/api/talent-folders" => "OWNER: talent-folders — per-folder talent_folder_members.count (talent_folders_controller.rb:3)"
   }.freeze
 
@@ -45,19 +44,11 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
     "/api/reviews" => "OWNER: reviews — reviews_controller.rb:5 returns every published review",
     "/api/resources" => "OWNER: resources — resources_controller.rb:2 returns every published resource",
     "/api/employers" => "OWNER: talent — talent_controller.rb:76 returns every active employer to any signed-in user",
-    "/api/availability" => "OWNER: availability — availability_controller.rb:3 returns every window, past ones included",
     "/api/conversations" => "OWNER: messaging — conversations_controller.rb:11 returns every conversation",
-    "/api/bookings" => "OWNER: bookings — bookings_controller.rb:5 returns every booking with quotes and payments",
     "/api/bookings/{requested_booking}/payments" => "OWNER: bookings — bookings_controller.rb:137 returns every payment of a booking",
-    "/api/organizations" => "OWNER: organizations — organizations_controller.rb:9",
-    "/api/organizations/{org}/members" => "OWNER: organizations — organizations_controller.rb:23",
-    "/api/urgent-requests" => "OWNER: urgent-requests — urgent_requests_controller.rb:6 returns every open request",
-    "/api/urgent-requests/{urgent}/responses" => "OWNER: urgent-requests — urgent_requests_controller.rb:25",
     "/api/talent-folders" => "OWNER: talent-folders — talent_folders_controller.rb:3",
     "/api/talent-folders/{folder}" => "OWNER: talent-folders — talent_folders_controller.rb:10 returns every member",
-    "/api/band-projects" => "OWNER: band-projects — band_projects_controller.rb:3",
     "/api/crew-plans" => "OWNER: crew-plans — crew_plans_controller.rb:4",
-    "/api/acts/me" => "OWNER: acts — acts_controller.rb:23"
   }.freeze
 
   test "list endpoints stay within the query budget and do not grow with rows (no N+1)" do

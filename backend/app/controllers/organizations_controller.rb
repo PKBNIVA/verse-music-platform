@@ -8,19 +8,19 @@ class OrganizationsController < ApplicationController
   def index
     scope = Organization.left_joins(:organization_members)
       .where("organizations.owner_id = :user_id OR organization_members.user_id = :user_id", user_id: current_user.id)
-      .distinct
+      .distinct.limit(200)
     render json: { organizations: scope.includes(:organization_members).map { |org| organization_json(org) } }
   end
 
   def create
-    org = Organization.create!(owner: current_user, name: params[:name], org_type: params[:orgType], website: params[:website], city: params[:city], tax_id: params[:taxId], billing_email: params[:billingEmail], status: "active")
+    org = Organization.create!(owner: current_user, name: params[:name].to_s.strip, org_type: params[:orgType], website: params[:website], city: params[:city], tax_id: params[:taxId], billing_email: params[:billingEmail], status: "active")
     org.organization_members.create!(user: current_user, role: "owner")
     render json: { id: org.id }, status: :created
   end
 
   def members
     org = accessible
-    render json: { members: org.organization_members.includes(:user).map { |member| { id: member.user.id, name: member.user.name, email: member.user.email, role: member.role } } }
+    render json: { members: org.organization_members.includes(:user).order(:created_at).limit(500).map { |member| { id: member.user.id, name: member.user.name, email: member.user.email, role: member.role } } }
   end
 
   def add_member

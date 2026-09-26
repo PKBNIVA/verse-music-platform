@@ -2,12 +2,16 @@ class ActsController < ApplicationController
   # Only "confirmed" exists today: public lineups show confirmed members and no flow sets another status.
   MEMBER_STATUSES = %w[confirmed].freeze
 
-  def public_index = render(json: { acts: filtered_scope.map(&:public_json) })
+  def public_index
+    scope = filtered_scope
+    render(json: { acts: scope.map(&:public_json) }) if scope
+  end
   def public_show = render(json: { act: Act.includes(:act_members, owner: :profile).where(status: "active").find(params[:id]).public_json })
 
   def index
     return unless authenticate!
-    render json: { acts: filtered_scope.map(&:public_json) }
+    scope = filtered_scope
+    render json: { acts: scope.map(&:public_json) } if scope
   end
 
   def show
@@ -20,7 +24,7 @@ class ActsController < ApplicationController
 
   def mine
     return unless authenticate!("jobseeker", "employer")
-    render json: { acts: current_user.owned_acts.includes(:act_members).order(updated_at: :desc).map(&:api_json) }
+    render json: { acts: current_user.owned_acts.includes(:act_members, owner: :profile).order(updated_at: :desc).limit(200).map(&:api_json) }
   end
 
   def create
@@ -75,6 +79,10 @@ class ActsController < ApplicationController
   private
 
   def filtered_scope
+    unless [params[:q], params[:city]].all? { _1.nil? || _1.is_a?(String) }
+      render_error("Search filters must be plain text.", :bad_request, "INVALID_PARAMETER")
+      return nil
+    end
     scope = Act.includes(:act_members, owner: :profile).where(status: "active").order(verified: :desc, updated_at: :desc)
     if params[:q].present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:q])}%"

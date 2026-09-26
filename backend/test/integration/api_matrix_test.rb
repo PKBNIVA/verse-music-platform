@@ -208,10 +208,6 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
   # still runs every other step; a failure in the listed step is recorded and the test is
   # skipped at the end with the reason, so the suite stays green until the owner fixes it.
   KNOWN_GAPS = {
-    "POST /api/bookings/{requested_booking}/status" => [:idor,
-      "OWNER: bookings — a non-party gets 409 'Invalid booking status change' instead of 404 (bookings_controller.rb:42 finds the booking without a party scope: existence oracle)"],
-    "POST /api/organizations" => [:bad,
-      "OWNER: organizations — POST /api/organizations {name: \"\"} creates a nameless workspace (201); Organization has no name presence validation"],
     "DELETE /api/talent-folders/{folder}" => [:allowed,
       "OWNER: talent-folders — deleting a folder with members is 500 PG::SyntaxError (TalentFolderMember has no primary key; dependent: :destroy issues WHERE \"\" = NULL)"]
   }.freeze

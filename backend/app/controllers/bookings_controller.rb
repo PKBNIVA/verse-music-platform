@@ -4,33 +4,45 @@ class BookingsController < ApplicationController
 
   def index
     scope = BookingRequest.joins(:act).includes(:requester, act: :owner, booking_quotes: [], booking_payments: [])
-      .where("booking_requests.requester_id = ? OR acts.owner_id = ?", current_user.id, current_user.id).order(updated_at: :desc)
+      .where("booking_requests.requester_id = ? OR acts.owner_id = ?", current_user.id, current_user.id).order(updated_at: :desc).limit(200)
     render json: { bookings: scope.map { booking_json(_1) } }
   end
 
   def create
-    act = Act.where(status: "active").find(params[:actId])
+    scalar_keys = %i[actId eventType eventName eventDate startTime durationMinutes venueName venueAddress city audienceSize indoorOutdoor budgetMin budgetMax currency requirements]
+    return render_error("Booking fields must be plain values.", :bad_request, "INVALID_PARAMETER") if scalar_keys.any? { params[_1].is_a?(Array) || params[_1].is_a?(ActionController::Parameters) }
+    act = Act.where(status: "active").find_by(id: params[:actId].to_s)
+    return render_error("This act is no longer available for booking.", :not_found) unless act
     return render_error("You cannot book your own act.", :conflict) if act.owner_id == current_user.id
+    event_date = parse_event_date(params[:eventDate])
+    date_error = if !event_date then "Choose a valid event date."
+    elsif event_date < Date.current then "The event date cannot be in the past."
+    end
     booking = nil
     BookingRequest.transaction do
       current_user.lock!
       active = BookingRequest.where(requester: current_user, status: Entitlements::ACTIVE_BOOKING_STATUSES).count
       Entitlements.for(current_user).ensure_capacity!(:bookings, active)
-      booking = BookingRequest.create!(act:, requester: current_user, event_type: params[:eventType], event_name: params[:eventName], event_date: params[:eventDate], start_time: params[:startTime], duration_minutes: params[:durationMinutes], venue_name: params[:venueName], venue_address: params[:venueAddress], city: params[:city], audience_size: params[:audienceSize], indoor_outdoor: params[:indoorOutdoor], budget_min: params[:budgetMin], budget_max: params[:budgetMax], currency: params[:currency].presence || "INR", requirements: params[:requirements], production_provided: params[:productionProvided] || [], travel_provided: params[:travelProvided] || false, accommodation_provided: params[:accommodationProvided] || false, status: "requested")
+      next if date_error
+      booking = BookingRequest.create!(act:, requester: current_user, event_type: params[:eventType], event_name: params[:eventName], event_date:, start_time: params[:startTime], duration_minutes: params[:durationMinutes], venue_name: params[:venueName], venue_address: params[:venueAddress], city: params[:city], audience_size: params[:audienceSize], indoor_outdoor: params[:indoorOutdoor], budget_min: params[:budgetMin], budget_max: params[:budgetMax], currency: params[:currency].presence || "INR", requirements: params[:requirements], production_provided: params[:productionProvided] || [], travel_provided: params[:travelProvided] || false, accommodation_provided: params[:accommodationProvided] || false, status: "requested")
       Notifier.booking_enquiry(booking)
       audit!("booking.create", booking)
     end
+    return render_error(date_error, :unprocessable_entity) if date_error
     render json: { id: booking.id }, status: :created
   rescue Entitlements::LimitReached => error
     render_error(error.message, :payment_required, Entitlements::ERROR_CODE)
   end
 
   def quote
-    booking = owned_booking
+    booking = party_booking
+    return render_error("Only the act owner can send a quote.", :forbidden) unless booking.act.owner_id == current_user.id
     quote = nil
     booking.with_lock do
       raise BookingRequest::InvalidTransition unless %w[requested viewed negotiating quoted].include?(booking.status)
-      quote = booking.booking_quotes.create!(created_by: current_user, performance_fee: params[:performanceFee], travel_fee: params[:travelFee] || 0, production_fee: params[:productionFee] || 0, other_fee: params[:otherFee] || 0, currency: params[:currency].presence || booking.currency, deposit_percent: params[:depositPercent] || 50, valid_until: params[:validUntil], inclusions: params[:inclusions], exclusions: params[:exclusions], cancellation_terms: params[:cancellationTerms], status: "sent")
+      # A new quote supersedes the previous open one; only the latest can be accepted and paid.
+      booking.booking_quotes.where(status: "sent").update_all(status: "superseded", updated_at: Time.current)
+      quote = booking.booking_quotes.create!(created_by: current_user, performance_fee: params[:performanceFee], travel_fee: params[:travelFee] || 0, production_fee: params[:productionFee] || 0, other_fee: params[:otherFee] || 0, currency: (params[:currency].presence || booking.currency).to_s.strip.upcase, deposit_percent: params[:depositPercent] || 50, valid_until: params[:validUntil], inclusions: params[:inclusions], exclusions: params[:exclusions], cancellation_terms: params[:cancellationTerms], status: "sent")
       booking.update!(status: "quoted")
       Notifier.booking_quote(booking)
     end
@@ -40,12 +52,12 @@ class BookingsController < ApplicationController
   end
 
   def change_status
-    booking = BookingRequest.includes(:act).find(params[:id])
-    booking.transition_to!(params[:status], actor: current_user)
+    booking = party_booking
+    booking.transition_to!(params[:status].to_s, actor: current_user)
     Notifier.booking_status(booking, actor: current_user)
-    render json: { ok: true }
-  rescue BookingRequest::InvalidTransition
-    render_error("Invalid booking status change.", :conflict)
+    render json: { ok: true, status: booking.status }
+  rescue BookingRequest::InvalidTransition => error
+    render_error(error.message, error.http_status)
   end
 
   def payment_order
@@ -156,7 +168,21 @@ class BookingsController < ApplicationController
     "#{current_user.id}:#{operation}:#{token}"
   end
 
-  def owned_booking = BookingRequest.joins(:act).where(acts: { owner_id: current_user.id }).find(params[:id])
+  # Bookings are visible only to their two parties; everyone else gets a 404.
+  def party_booking
+    BookingRequest.joins(:act).includes(:act).where("booking_requests.requester_id = :id OR acts.owner_id = :id", id: current_user.id).find(params[:id])
+  end
+
+  def parse_event_date(value)
+    Date.iso8601(value.to_s.first(10))
+  rescue ArgumentError, TypeError
+    nil
+  end
+  def allowed_transitions(booking)
+    table = booking.act.owner_id == current_user.id ? BookingRequest::OWNER_TRANSITIONS : BookingRequest::REQUESTER_TRANSITIONS
+    table.fetch(booking.status, [])
+  end
+
   def booking_json(b)
     quote = b.booking_quotes.max_by(&:created_at)
     quote_json = quote && {
@@ -166,6 +192,7 @@ class BookingsController < ApplicationController
       inclusions: quote.inclusions, exclusions: quote.exclusions,
       cancellationTerms: quote.cancellation_terms, status: quote.status
     }
-    b.attributes.merge(actName: b.act.name, requesterName: b.requester.name, isOwner: b.act.owner_id == current_user.id, isRequester: b.requester_id == current_user.id, latestQuoteTotal: quote&.total, latestQuoteCurrency: quote&.currency, latestDepositPercent: quote&.deposit_percent, latestQuote: quote_json, paidAmount: b.booking_payments.select { _1.status == "paid" }.sum(&:amount), paymentCount: b.booking_payments.size)
+    b.attributes.merge(actName: b.act.name, requesterName: b.requester.name, isOwner: b.act.owner_id == current_user.id, isRequester: b.requester_id == current_user.id, latestQuoteTotal: quote&.total, latestQuoteCurrency: quote&.currency, latestDepositPercent: quote&.deposit_percent, latestQuote: quote_json, paidAmount: b.booking_payments.select { _1.status == "paid" }.sum(&:amount), paymentCount: b.booking_payments.size,
+      depositPaid: b.booking_payments.any? { _1.kind == "deposit" && _1.status == "paid" }, allowedTransitions: allowed_transitions(b))
   end
 end

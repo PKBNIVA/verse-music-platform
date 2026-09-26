@@ -32,20 +32,14 @@ class ApiSecurityProbesTest < ActionDispatch::IntegrationTest
       "OWNER: jobs — GET /api/jobs?location[]=a or ?kind[x]=y is 500 (jobs_controller.rb:13-14 sanitize_sql_like/where on non-string params)",
     %r{\A/api/(public/talent|candidates)\?} =>
       "OWNER: talent — GET /api/public/talent?q[]=a (also location/role/instrument, /api/candidates) is 500 (talent_controller.rb:87-99 sanitize_sql_like on Array)",
-    %r{\A/api/(public/)?acts\?} =>
-      "OWNER: acts — GET /api/public/acts?q[]=a or ?city[x]=y is 500 (acts_controller.rb:79-87 sanitize_sql_like on non-string)",
     %r{\A/api/reviews\?employerId} =>
       "OWNER: reviews — GET /api/reviews?employerId[x]=y is 500 (reviews_controller.rb:4 where(employer_id: Parameters))",
     %r{\APOST /api/reviews } =>
       "OWNER: reviews — POST /api/reviews {employerId:[id]} is 500 NoMethodError (reviews_controller.rb:12 find(Array) returns an Array)",
-    %r{\A/api/urgent-requests\?} =>
-      "OWNER: urgent-requests — GET /api/urgent-requests?city[]=a or ?role[]=a is 500 (urgent_requests_controller.rb:7-10 sanitize_sql_like on Array)",
     %r{\A/api/employer/applications\?jobId} =>
       "OWNER: employer-applications — GET /api/employer/applications?jobId[x]=y is 500 (employer/applications_controller.rb:6 where(job_id: Parameters))",
     %r{\APOST /api/conversations } =>
       "OWNER: messaging — POST /api/conversations {jobId:{a:1}} is 500 StatementInvalid (conversations_controller.rb:18 find_by(id: Parameters))",
-    %r{\APOST /api/bookings } =>
-      "OWNER: bookings — POST /api/bookings {actId:[id]} is 500 NoMethodError owner_id for Array (bookings_controller.rb:11 find(Array))",
     %r{\APOST /api/crew-plans } =>
       "OWNER: crew-plans — POST /api/crew-plans {needs:\"sound\"} is 500 NoMethodError flat_map for String (crew_plans_controller.rb:7)"
   }.freeze
