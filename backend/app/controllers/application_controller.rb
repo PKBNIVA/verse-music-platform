@@ -3,6 +3,15 @@ class ApplicationController < ActionController::API
   before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
   rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
+  # Client mistakes that would otherwise surface as 500s (or as framework error pages without
+  # the {error, code} shape). Later declarations take precedence over earlier ones.
+  rescue_from ArgumentError, with: :render_invalid_argument
+  rescue_from ActiveModel::RangeError, with: -> { render_error("A number is outside the allowed range.", :unprocessable_entity, "OUT_OF_RANGE") }
+  rescue_from ActiveRecord::NotNullViolation, with: :render_missing_column
+  rescue_from ActiveRecord::RecordNotUnique, with: -> { render_error("This record already exists.", :conflict, "CONFLICT") }
+  rescue_from ActionController::BadRequest, with: ->(error) { render_error(error.message.presence || "Bad request", :bad_request, "BAD_REQUEST") }
+  rescue_from ActionController::ParameterMissing, with: ->(error) { render_error("Missing parameter: #{error.param}", :bad_request, "PARAMETER_MISSING") }
+  rescue_from ActionDispatch::Http::Parameters::ParseError, with: -> { render_error("Request body is not valid JSON.", :bad_request, "MALFORMED_JSON") }
 
   private
 
@@ -51,6 +60,23 @@ class ApplicationController < ActionController::API
 
   def render_error(message, status, code = nil)
     render json: { error: message, code: code }.compact, status: status
+  end
+
+  # Enum assignment ("'x' is not a valid status") and PostgreSQL's refusal of NUL bytes are
+  # input errors; any other ArgumentError is a programming error and stays a 500.
+  INVALID_ARGUMENT_PATTERN = /is not a valid \w+|string contains null byte/
+
+  def render_invalid_argument(error)
+    raise error unless error.message.match?(INVALID_ARGUMENT_PATTERN)
+    message = error.message.include?("null byte") ? "Text may not contain NUL characters." : error.message.delete("'").capitalize
+    render_error(message, :unprocessable_entity, "INVALID_VALUE")
+  end
+
+  # A NOT NULL column reached the database without a value: a required field was omitted.
+  def render_missing_column(error)
+    column = error.cause.respond_to?(:result) ? error.cause.result&.error_field(PG::Result::PG_DIAG_COLUMN_NAME) : nil
+    field = column.to_s.camelize(:lower).presence
+    render_error(field ? "#{field} is required." : "A required field is missing.", :unprocessable_entity, "MISSING_FIELD")
   end
 
   def digest(value)
