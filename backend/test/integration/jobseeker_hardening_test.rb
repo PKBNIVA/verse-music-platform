@@ -75,6 +75,29 @@ class JobseekerHardeningTest < ActionDispatch::IntegrationTest
     assert_equal ["Q :: A"], Application.find(response.parsed_body["id"]).screening_answers
   end
 
+  test "array or hash filters return 400 instead of 500" do
+    ["location[]=a", "kind[x]=y", "q[]=drums", "paid[]=true"].each do |query|
+      get "/api/jobs?#{query}"
+      assert_response :bad_request, query
+      assert_equal "INVALID_FILTER", response.parsed_body["code"]
+    end
+    get "/api/jobs?location=Mumbai&kind=job"
+    assert_response :success
+  end
+
+  test "reviews reject a non-string employerId and rate-check input" do
+    get "/api/reviews?employerId[x]=y", headers: auth(@seeker)
+    assert_response :unprocessable_entity
+    assert_equal "INVALID_EMPLOYER", response.parsed_body["code"]
+
+    post "/api/reviews", params: { employerId: [@employer.id], rating: 5, body: "Great" }, headers: auth(@seeker), as: :json
+    assert_response :unprocessable_entity
+    assert_equal "INVALID_EMPLOYER", response.parsed_body["code"]
+
+    get "/api/reviews?employerId=#{@employer.id}", headers: auth(@seeker)
+    assert_response :success
+  end
+
   private
 
   def auth(user)

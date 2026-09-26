@@ -1,14 +1,16 @@
 class ReviewsController < ApplicationController
   def index
+    return render_invalid_employer if params.key?(:employerId) && !params[:employerId].is_a?(String)
     scope = Review.includes(:author, :employer).where(status: "published")
     scope = scope.where(employer_id: params[:employerId]) if params[:employerId].present?
-    payload = { reviews: scope.order(created_at: :desc).map { _1.attributes.merge(authorName: _1.author.name, employerName: _1.employer.profile&.company_name || _1.employer.name) } }
+    payload = { reviews: scope.order(created_at: :desc).limit(200).map { _1.attributes.merge(authorName: _1.author.name, employerName: _1.employer.profile&.company_name || _1.employer.name) } }
     payload[:eligibleEmployers] = eligible_employers.map { public_employer(_1).merge(eligibleForReview: true) } if current_user&.jobseeker?
     render json: payload
   end
 
   def create
     return unless authenticate!("jobseeker")
+    return render_invalid_employer unless params[:employerId].is_a?(String)
     employer = User.employer.active.find(params[:employerId])
     outcome = Review.transaction do
       # reviews has no unique (author_id, employer_id) index, so concurrent submissions are
@@ -29,6 +31,10 @@ class ReviewsController < ApplicationController
   end
 
   private
+
+  def render_invalid_employer
+    render_error("employerId must be a single employer id.", :unprocessable_entity, "INVALID_EMPLOYER")
+  end
 
   # Shared by the form response and create authorization to prevent contract drift.
   def eligible_employers

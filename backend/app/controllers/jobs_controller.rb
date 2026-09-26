@@ -1,5 +1,12 @@
 class JobsController < ApplicationController
+  FILTER_PARAMS = %i[q location kind function workplace experience paid verified].freeze
+  LIST_LIMIT = 200
+
   def index
+    # ?location[]=a or ?kind[x]=y arrive as arrays/hashes; the filters below expect text.
+    if (bad = FILTER_PARAMS.find { params.key?(_1) && !params[_1].is_a?(String) })
+      return render_error("Search filter \"#{bad}\" must be a single text value.", :bad_request, "INVALID_FILTER")
+    end
     jobs = Job.published.with_applications_count.includes(employer: :profile).order(featured: :desc, created_at: :desc)
     query = params[:q].to_s.strip
     if query.present?
@@ -62,7 +69,7 @@ class JobsController < ApplicationController
 
   def saved
     return unless authenticate!("jobseeker")
-    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).with_applications_count.includes(employer: :profile).order("saved_jobs.created_at DESC").map(&:api_json) }
+    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).with_applications_count.includes(employer: :profile).order("saved_jobs.created_at DESC").limit(LIST_LIMIT).map(&:api_json) }
   end
 
   def save

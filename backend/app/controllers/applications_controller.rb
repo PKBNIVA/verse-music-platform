@@ -1,7 +1,7 @@
 class ApplicationsController < ApplicationController
   def index
     return unless authenticate!("jobseeker")
-    render json: { applications: current_user.applications.includes(:job).order(updated_at: :desc).map { candidate_json(_1) } }
+    render json: { applications: current_user.applications.includes(:job).order(updated_at: :desc).limit(200).map { candidate_json(_1) } }
   end
 
   def destroy

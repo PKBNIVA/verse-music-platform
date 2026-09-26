@@ -5,7 +5,7 @@ class JobAlertsController < ApplicationController
   # Surface the reason to the client; a raised BadRequest rendered as a bare "Bad Request" in production.
   rescue_from InvalidAlert, with: ->(error) { render_error(error.message, :unprocessable_entity) }
 
-  def index = render(json: { alerts: current_user.job_alerts.order(created_at: :desc) })
+  def index = render(json: { alerts: current_user.job_alerts.order(created_at: :desc).limit(200) })
 
   def create
     alert = current_user.job_alerts.create!({ "frequency" => "saved" }.merge(alert_params))
