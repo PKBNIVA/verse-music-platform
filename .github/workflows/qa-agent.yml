@@ -62,6 +62,10 @@ jobs:
       QA_BASE_URL: ${{ inputs.base_url || 'https://verse-music-platform.vercel.app' }}
       QA_API_BASE_URL: ${{ inputs.api_base_url || 'https://verse-music-platform-production.up.railway.app/api' }}
       QA_FULL_MATRIX: ${{ inputs.full_browser_matrix && 'true' || 'false' }}
+      # Deploy verification: a manual run (dispatched from the branch that was just deployed)
+      # waits up to 5 minutes for /api/health and the web app to report this commit.
+      # Scheduled runs may legitimately test an older deploy, so they leave it empty.
+      QA_EXPECTED_RELEASE: ${{ github.event_name == 'workflow_dispatch' && github.sha || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

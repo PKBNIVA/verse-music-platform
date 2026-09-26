@@ -297,6 +297,107 @@ After deployment verify:
 7. One real transactional email after Brevo is live.
 8. One upload/read/delete lifecycle after object storage is live.
 
+## Error alerting and uptime
+
+Error tracking is built in but **inert until a DSN is set**: with no DSN the API never
+initialises Sentry and the web app never downloads it (zero requests to Sentry).
+
+### 1. Create the Sentry projects (one time)
+
+1. Sign up at sentry.io (the free Developer plan is enough to start) and create an
+   organisation, e.g. `verse`. Pick the data region you prefer (US or EU); the CSP in
+   `vercel.json` already allows `*.ingest.sentry.io`, `*.ingest.us.sentry.io` and
+   `*.ingest.de.sentry.io`.
+2. Create two projects:
+   - `verse-api`, platform **Rails**;
+   - `verse-web`, platform **React**.
+3. Copy each project's DSN (Project settings → Client Keys (DSN)). A DSN is not a secret in
+   the browser, but keep it out of the repository anyway.
+
+### 2. Where each value goes
+
+| Where | Variable | Value |
+| --- | --- | --- |
+| Railway (Rails service) | `SENTRY_DSN` | `verse-api` DSN |
+| Railway | `SENTRY_ENVIRONMENT` | optional, defaults to `RAILS_ENV` (`production`) |
+| Railway | `SENTRY_TRACES_SAMPLE_RATE` | optional, default `0` (errors only). `0.05` samples 5% of requests for performance data |
+| Vercel (Production environment) | `VITE_SENTRY_DSN` | `verse-web` DSN |
+| Vercel (Production environment) | `VITE_SENTRY_ENVIRONMENT` | `production` (Preview deployments can use `preview`, or leave the DSN unset there) |
+| Vercel | `VITE_SENTRY_TRACES_SAMPLE_RATE` | optional, default `0` |
+
+Releases are automatic: the API reports `RAILWAY_GIT_COMMIT_SHA` and the web build uses
+`VERCEL_GIT_COMMIT_SHA` (exposed as `<meta name="verse-release">`). `VITE_*` values are read
+at build time, so **redeploy Vercel after changing them**. Railway restarts on variable changes.
+
+What is sent, and what is not:
+
+- API: unhandled exceptions (500s), rescued errors that still answer 5xx (e.g. Razorpay
+  gateway failures), errors the code swallows and logs (email enqueue/delivery, notification
+  email, demo data jobs, upload sweep, billing reconciliation, checkout cleanup), GoodJob
+  failures (discarded or retries exhausted — job class and job id only, never arguments),
+  and GoodJob internal thread errors. Expected 4xx errors (not found, validation, bad
+  request, routing) are never sent.
+- Web: render crashes (app error boundary and route error page; a stale-chunk error only
+  after the one automatic reload has failed), unhandled errors and promise rejections, and
+  API 5xx/timeout/network failures rate-limited to one per kind per 5 minutes and at most 5
+  per page session. API 4xx responses are never sent. Session replay is off.
+- Privacy: no request bodies, cookies, query strings, IP addresses or job arguments; emails
+  (also URL-encoded), bearer tokens, the `verse_access_token` value, `Authorization`/cookie
+  headers and password/token/code/otp/secret/signature/body fields are scrubbed before
+  sending. Users are identified by internal id and role only.
+
+### 3. Alert rules (Sentry → Alerts → Create alert → Issues), for each project
+
+1. **New issue** — "A new issue is created" → email the owner (and the team, if any).
+2. **Spike** — "Number of events in an issue is more than 20 in 5 minutes" → email.
+3. **Regression** — "The issue changes state from resolved to unresolved" → email.
+
+Also enable Settings → Account → Notifications → "Workflow" and "Issue alerts" email, and
+install the Sentry mobile app if you want push alerts.
+
+### 4. Cost
+
+The free Developer plan includes a fixed monthly error quota (about 5k errors at the time of
+writing) and one user; check sentry.io/pricing for current limits. To stay inside it:
+tracing defaults to 0, replay is off, API failure bursts in the browser are rate limited, and
+expected 4xx are dropped. Set a spike-protection/quota limit per project in Sentry
+(Settings → Subscription/Spend) so a bad deploy cannot exhaust the month. Raise
+`SENTRY_TRACES_SAMPLE_RATE` / `VITE_SENTRY_TRACES_SAMPLE_RATE` only deliberately.
+
+### 5. Verify after setting the DSNs
+
+1. Sign in as an admin and open `/admin/tester` → **Error alerting**.
+2. **Send server test error** calls `POST /api/admin/health/sentry-test` (admin only,
+   audited as `admin.sentry_test`). It answers `captured: true` with an event id when
+   `SENTRY_DSN` is set, `captured: false` when it is not. The event appears in `verse-api`
+   as `Admin::HealthController::SentryTestError`, tagged `verse_test=true`.
+3. **Send test error** (shown only when the build has `VITE_SENTRY_DSN`) sends a tagged client
+   error to `verse-web`.
+4. Confirm the "new issue" alert emails arrive, then resolve both test issues.
+
+### 6. Uptime monitoring (free)
+
+Use UptimeRobot (free: 50 monitors, 5-minute interval) or Better Stack Uptime (free tier):
+
+| Monitor | URL | Check |
+| --- | --- | --- |
+| Verse API | `https://verse-music-platform-production.up.railway.app/api/health` | HTTP 200, keyword `"ok":true` |
+| Verse web | `https://verse-music-platform.vercel.app` | HTTP 200 |
+
+Interval 5 minutes, alert contact = owner email, alert after 2 consecutive failures to avoid
+noise from a single cold start. (`/api/readiness` answers 503 while a core dependency is down;
+add it as a third monitor if you want database outages to page separately.)
+
+### 7. Deploy verification without opening Railway
+
+After merging to `production`, run **Actions → Verse QA Agent → Run workflow** on the
+`production` branch. For manual runs the live job sets `QA_EXPECTED_RELEASE` to the
+workflow's commit, and `tests/e2e/api-health.spec.ts` polls for up to 5 minutes until
+`GET /api/health` reports that commit (first 12 characters) and the web app's
+`<meta name="verse-release">` matches it. A red run means Railway or Vercel did not deploy
+that commit. Scheduled runs skip this check because they may legitimately test an older
+deploy. `window.__VERSE_RELEASE__` in the browser console shows the running web build.
+
 ## Backups and rollback
 
 Railway's current trial does not provide managed backups or point-in-time recovery.
