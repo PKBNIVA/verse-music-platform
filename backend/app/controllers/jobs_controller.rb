@@ -45,7 +45,12 @@ class JobsController < ApplicationController
     return render_error("You cannot apply to an opportunity you created.", :conflict) if job.employer_id == current_user.id
     return render_error("The application deadline has passed.", :conflict) if job.application_deadline&.past?
     return render_error("This opportunity requires at least one portfolio item.", :conflict) if job.portfolio_required? && current_user.portfolio_items.none?
-    application = job.applications.create!(candidate: current_user, cover_letter: params[:coverLetter], screening_answers: params[:screeningAnswers] || [])
+    cover_letter = params[:coverLetter]
+    return render_error("The note to the employer must be text.", :unprocessable_entity) unless cover_letter.nil? || cover_letter.is_a?(String)
+    return render_error("The note to the employer must be 5,000 characters or fewer.", :unprocessable_entity) if cover_letter.to_s.length > 5_000
+    answers = params[:screeningAnswers]
+    answers = Array(answers.is_a?(Array) ? answers : nil).select { _1.is_a?(String) }.map { _1.first(5_000) }
+    application = job.applications.create!(candidate: current_user, cover_letter: cover_letter.presence, screening_answers: answers)
     application.application_events.create!(actor: current_user, event_type: "created", to_status: "Applied")
     Notifier.new_application(application)
     audit!("application.create", application)

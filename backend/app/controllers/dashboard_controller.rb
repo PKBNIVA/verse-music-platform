@@ -21,10 +21,12 @@ class DashboardController < ApplicationController
   def fit_score(job, profile)
     return 35 unless profile
     score = 35
-    skills = profile.skills.map(&:downcase)
-    score += [job.skills.map(&:downcase).count { skills.include?(_1) } * 12, 35].min
-    score += 15 if profile.genres.map(&:downcase).include?(job.genre.to_s.downcase)
-    score += 10 if profile.location.present? && job.location.to_s.downcase.include?(profile.location.split(",").first.downcase)
+    skills = Array(profile.skills).map { _1.to_s.downcase }
+    score += [Array(job.skills).map { _1.to_s.downcase }.count { skills.include?(_1) } * 12, 35].min
+    score += 15 if Array(profile.genres).map { _1.to_s.downcase }.include?(job.genre.to_s.downcase)
+    # A location such as "," or " , Mumbai" has a blank first segment; blank must not match every job.
+    city = profile.location.to_s.split(",").map(&:strip).find(&:present?)&.downcase
+    score += 10 if city && job.location.to_s.downcase.include?(city)
     [score + (job.workplace == "remote" ? 5 : 0), 100].min
   end
 end
