@@ -5,11 +5,10 @@
 
 ###
 # `to_time` keeps the receiver's full time zone instead of only its UTC offset.
-# ENABLED: required on 8.x (any other value is deprecated and raises under the test
-# env's `deprecation = :raise`). The app stores and serialises UTC timestamps
-# (`Time.current`, `iso8601`), so zone vs. offset makes no observable difference.
-# Set in config/application.rb: ActiveSupport applies (and warns about) this value
-# before config/initializers run, so setting it here is too late.
+# ALWAYS ON: Rails 8.1 hard-codes :zone and deprecates the setting itself, so it must
+# not be set at all. (On 8.0 it had to be set to :zone in config/application.rb.)
+# The app stores and serialises UTC timestamps (`Time.current`, `iso8601`), so zone
+# vs. offset makes no observable difference.
 # Rails.application.config.active_support.to_time_preserves_timezone = :zone
 
 ###
