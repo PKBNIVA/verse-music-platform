@@ -75,17 +75,17 @@ class BookingsController < ApplicationController
     if existing
       return render_error("Deposit is already paid.", :conflict) if existing.status == "paid"
       return render_error("Payment order is being prepared. Retry shortly.", :conflict) if existing.provider == "razorpay" && existing.provider_order_id.blank?
-      checkout = existing.provider == "razorpay" ? { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], amount: existing.amount * 100, currency: existing.currency, orderId: existing.provider_order_id } : { mode: "mock" }
+      checkout = existing.provider == "razorpay" ? razorpay_order_checkout(existing.provider_order_id, existing.amount * 100, existing.currency) : { mode: "mock" }
       return render json: { payment: existing, checkout: }
     end
     checkout = if payment.provider == "razorpay"
-      order = RazorpayGateway.new.create_order(amount_paise: payment.amount * 100, currency: quote.currency, receipt: "booking-#{payment.id}", notes: { booking_id: booking.id, payment_id: payment.id, attempt_id: attempt.id })
+      order = RazorpayGateway.new.create_order(amount_paise: payment.amount * 100, currency: quote.currency, receipt: payment.provider_receipt, notes: { booking_id: booking.id, payment_id: payment.id, attempt_id: attempt.id })
       attempt.update!(provider_resource_id: order.fetch("id"), response_payload: order)
       BookingPayment.transaction do
         payment.update!(provider_order_id: order.fetch("id"))
         attempt.succeed!(provider_resource_id: order.fetch("id"), response_payload: order)
       end
-      { mode: "razorpay", keyId: ENV["RAZORPAY_KEY_ID"], amount: order.fetch("amount"), currency: order.fetch("currency"), orderId: order.fetch("id") }
+      razorpay_order_checkout(order.fetch("id"), order.fetch("amount"), order.fetch("currency"))
     else
       { mode: "mock" }
     end
@@ -100,13 +100,19 @@ class BookingsController < ApplicationController
 
   def confirm_payment
     payment = BookingPayment.find(params[:id]); return render_error("Payment not found", :not_found) unless payment.payer_id == current_user.id
-    return render_error("Payment is already confirmed.", :conflict) if payment.status == "paid"
+    return render_error("Payment is already confirmed.", :conflict) if payment.status == "paid" && payment.provider != "razorpay"
     return render_error("Mock payments are disabled in production.", :forbidden) if Rails.env.production? && payment.provider != "razorpay"
     if payment.provider == "razorpay"
       return render_error("Live payments are not configured.", :service_unavailable) unless RazorpayConfig.usable?
       return render_error("Payment order mismatch", :unprocessable_entity) unless payment.provider_order_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id, params[:orderId].to_s)
       expected = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_KEY_SECRET"), "#{payment.provider_order_id}|#{params[:paymentId]}")
       return render_error("Invalid payment signature", :unprocessable_entity) unless ActiveSupport::SecurityUtils.secure_compare(expected, params[:signature].to_s)
+      # The signed payment.captured webhook often lands before the checkout handler calls back:
+      # the same verified payment is then a success, not a conflict.
+      if %w[paid refunded].include?(payment.status)
+        return render json: { ok: true, alreadyConfirmed: true } if payment.provider_payment_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_payment_id, params[:paymentId].to_s)
+        return render_error("Payment is already confirmed.", :conflict)
+      end
       provider_payment = RazorpayGateway.new.payment(params[:paymentId])
       valid_provider_payment = provider_payment["status"] == "captured" &&
         provider_payment["id"].to_s == params[:paymentId].to_s &&
@@ -139,6 +145,10 @@ class BookingsController < ApplicationController
   end
 
   private
+  def razorpay_order_checkout(order_id, amount_paise, currency)
+    { mode: "razorpay", keyId: RazorpayConfig.key_id, amount: amount_paise, currency:, orderId: order_id }.merge(RazorpayConfig.simulator? ? { simulator: true } : {})
+  end
+
   def billing_idempotency_key(operation)
     supplied = request.headers["Idempotency-Key"].to_s.strip
     token = supplied.present? ? supplied.first(180) : SecureRandom.uuid

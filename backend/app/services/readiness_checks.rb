@@ -48,6 +48,8 @@ class ReadinessChecks
 
   def payments_ready?
     return false if RazorpayConfig.key_present? && !RazorpayConfig.key_mode_allowed?
+    # The local simulator is ignored in production; flag the stray variable instead of hiding it.
+    return false if Rails.env.production? && ENV["RAZORPAY_SIMULATOR"].present?
     !Rails.env.production? || (RazorpayConfig.usable? && ENV["RAZORPAY_WEBHOOK_SECRET"].present?)
   end
 

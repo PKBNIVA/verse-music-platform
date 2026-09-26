@@ -173,7 +173,7 @@ class BillingHardeningTest < ActionDispatch::IntegrationTest
     with_gateway(gateway) { post "/api/billing/cancel", params: {}, headers: auth, as: :json }
 
     assert_response :success
-    assert_equal [[:cancel_subscription, "sub_to_cancel", {}]], gateway.calls
+    assert_equal [[:cancel_subscription, "sub_to_cancel", { at_cycle_end: true }]], gateway.calls
     assert_equal "active", active.reload.status
     assert active.cancel_at_period_end
   end

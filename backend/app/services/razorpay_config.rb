@@ -31,4 +31,12 @@ module RazorpayConfig
 
   # Keys are present and allowed for this environment.
   def usable? = key_present? && key_secret.present? && key_mode_allowed?
+
+  # Local Razorpay simulator (RazorpaySimulator) instead of api.razorpay.com.
+  # Never in production, and only with a test-mode key so live credentials can never reach it.
+  def simulator? = !Rails.env.production? && ENV["RAZORPAY_SIMULATOR"] == "true" && mode == "test"
+
+  # Safe to show to a signed-in user: whether payments run against Razorpay test mode
+  # (or the simulator). Never exposes the key itself.
+  def test_mode? = usable? && mode == "test"
 end

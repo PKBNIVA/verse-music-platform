@@ -1,9 +1,11 @@
 # Resolves billing work that a crashed or timed-out request left behind.
 #
 # 1. Pending/ambiguous attempts that know their provider id are reconciled against Razorpay.
-# 2. Attempts that never learned a provider id within BillingAttempt::STALE_AFTER are failed,
-#    together with the local resource they reserved. The browser never received a provider id
-#    for them, so nothing can be authorised or paid against them.
+# 2. Attempts that never learned a provider id (the create response was lost) are looked up
+#    at Razorpay by the attempt id sent in notes/receipt and attached when found.
+#    Once older than BillingAttempt::STALE_AFTER and confirmed absent (or when Razorpay is not
+#    configured) they are failed together with the local resource they reserved. The browser
+#    never received a provider id for them, so nothing can be authorised or paid against them.
 # 3. Razorpay booking payments stuck in `created` without an order are failed so the partial
 #    unique index on active deposits no longer blocks a retry.
 #
@@ -19,7 +21,10 @@ class BillingReconciliationJob < ApplicationJob
   def perform(now = Time.current, gateway: nil)
     @now = now
     @gateway = gateway
-    { reconciled: reconcile_known, stale: fail_stale_attempts, expiredPayments: expire_unissued_payments }
+    @recovered = 0
+    reconciled = reconcile_known
+    stale = resolve_unknown
+    { reconciled: reconciled + @recovered, stale:, expiredPayments: expire_unissued_payments }
   end
 
   private
@@ -42,12 +47,30 @@ class BillingReconciliationJob < ApplicationJob
     end
   end
 
-  def fail_stale_attempts
+  # Returns the number of attempts failed as stale; recovered ones are counted in @recovered.
+  def resolve_unknown
     cutoff = @now - BillingAttempt::STALE_AFTER
-    ids = BillingAttempt.unresolved.where(provider_resource_id: nil).where("created_at <= ?", cutoff).order(:created_at).limit(BATCH).pluck(:id)
+    lookup = @gateway || RazorpayConfig.usable?
+    scope = BillingAttempt.unresolved.where(provider_resource_id: nil)
+    scope = lookup ? scope.where("updated_at <= ? OR created_at <= ?", @now - SETTLE_AFTER, cutoff) : scope.where("created_at <= ?", cutoff)
+    ids = scope.order(:created_at).limit(BATCH).pluck(:id)
     ids.count do |id|
       claim(BillingAttempt, id) do |attempt|
-        next false unless %w[pending ambiguous].include?(attempt.state) && attempt.provider_resource_id.blank? && attempt.created_at <= cutoff
+        next false unless %w[pending ambiguous].include?(attempt.state) && attempt.provider_resource_id.blank?
+
+        if lookup
+          begin
+            reconciler.call(attempt)
+            @recovered += 1
+            next false
+          rescue BillingAttemptReconciler::ProviderResourceMissing
+            # Confirmed absent at Razorpay: fail it once it is old enough.
+          rescue RazorpayGateway::GatewayError, ArgumentError, ActiveRecord::RecordNotFound => error
+            attempt.update!(error_code: error.is_a?(RazorpayGateway::GatewayError) ? error.code : "reconcile_failed", error_message: error.message.first(500), last_attempted_at: @now)
+            next false if error.is_a?(RazorpayGateway::GatewayError)
+          end
+        end
+        next false unless attempt.created_at <= cutoff
 
         attempt.mark_stale!(now: @now)
         release_resource!(attempt)

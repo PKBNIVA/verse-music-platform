@@ -108,6 +108,15 @@ class BillingReconciliationJobTest < ActiveSupport::TestCase
           value
         end
       end
+      # Lookups for attempts without a provider id: nothing exists at Razorpay unless given.
+      gateway.define_singleton_method(:subscriptions) do |**kwargs|
+        calls << [:subscriptions, kwargs]
+        responses.fetch(:subscriptions, { "entity" => "collection", "count" => 0, "items" => [] })
+      end
+      gateway.define_singleton_method(:orders_by_receipt) do |receipt|
+        calls << [:orders_by_receipt, receipt]
+        responses.fetch(:orders_by_receipt, { "entity" => "collection", "count" => 0, "items" => [] })
+      end
     end
   end
 end

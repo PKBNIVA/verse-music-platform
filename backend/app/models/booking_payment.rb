@@ -15,6 +15,11 @@ class BookingPayment < ApplicationRecord
 
   UNISSUED_ORDER_TTL = 30.minutes
 
+  # Razorpay order receipts are limited to 40 characters ("book_<uuid>" plus a prefix is not).
+  def self.receipt_for(id) = "dep_#{id.to_s.split("_", 2).last.delete("-")}".first(40)
+
+  def provider_receipt = self.class.receipt_for(id)
+
   # A capture is final money movement. It is applied to a `created` payment, and
   # also to a payment that Razorpay previously reported as failed for the same
   # order (a customer can retry inside the same checkout after a decline), so a

@@ -43,6 +43,7 @@ Rails.application.routes.draw do
       get :subscriptions, to: "operations#subscriptions"
       get "billing-attempts", to: "operations#billing_attempts"
       post "billing-attempts/:id/reconcile", to: "operations#reconcile_billing_attempt"
+      resources :billing_events, path: "billing-events", only: %i[index show]
       get :bookings, to: "operations#bookings"
       post "search/reindex", to: "search#reindex"
       get "demo-data", to: "demo_data#index"
@@ -131,6 +132,15 @@ Rails.application.routes.draw do
       post :checkout, to: "billing#checkout"
       post :cancel, to: "billing#cancel"
       post "webhook/razorpay", to: "billing#razorpay_webhook"
+    end
+    # Local Razorpay simulator (RAZORPAY_SIMULATOR=true, test key, never production).
+    constraints(->(_request) { RazorpaySimulator.enabled? }) do
+      scope "dev/razorpay", controller: "dev/razorpay_simulator", as: "razorpay_simulator" do
+        post :checkout
+        post "subscriptions/:id/:simulate", action: :subscription_lifecycle
+        post "payments/:id/refund", action: :refund
+        post :webhooks, action: :webhook
+      end
     end
   end
 end

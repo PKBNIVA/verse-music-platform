@@ -9,6 +9,8 @@ module Admin
       BillingAttemptReconciler.new.call(attempt)
       audit!("admin.billing_attempt.reconcile", attempt)
       render json: { attempt: }
+    rescue BillingAttemptReconciler::ProviderResourceMissing => error
+      render_error(error.message, :not_found, "PROVIDER_RESOURCE_MISSING")
     rescue ArgumentError => error
       render_error(error.message, :conflict)
     rescue RazorpayGateway::GatewayError => error

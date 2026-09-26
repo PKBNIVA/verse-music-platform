@@ -14,7 +14,8 @@ module Billing
       "subscription.activated" => "active",
       "subscription.charged" => "active",
       "subscription.resumed" => "active",
-      "subscription.pending" => "pending",
+      # Razorpay `pending`: a renewal charge failed and is being retried. No paid capacity while unpaid.
+      "subscription.pending" => "past_due",
       "subscription.halted" => "past_due",
       "subscription.paused" => "past_due",
       "subscription.cancelled" => "cancelled",
@@ -28,7 +29,9 @@ module Billing
     def subscription
       return unless authenticate!
       sub = current_subscription
-      render json: { subscription: sub, plan: PLANS[effective_plan(sub)], purchasedPlan: PLANS[sub&.plan_code || "free"] }
+      ended = sub ? nil : Subscription.where(user: current_user, status: "cancelled", provider: "razorpay").where.not(provider_subscription_id: nil).order(updated_at: :desc).first
+      render json: { subscription: sub, plan: PLANS[effective_plan(sub)], purchasedPlan: PLANS[sub&.plan_code || "free"],
+                     summary: billing_summary(sub || ended), history: billing_history, testMode: RazorpayConfig.test_mode? || !RazorpayConfig.key_present? }
     end
 
     def checkout
@@ -48,7 +51,7 @@ module Billing
       current_user.with_lock do
         existing = Subscription.where(user: current_user, plan_code: code, status: %w[trialing pending], provider: "razorpay").where.not(provider_subscription_id: nil).order(created_at: :desc).first
         if existing
-          return render json: { subscription: existing, checkout: { mode: "razorpay", keyId: RazorpayConfig.key_id, subscriptionId: existing.provider_subscription_id } }
+          return render json: { subscription: existing, checkout: razorpay_checkout(existing.provider_subscription_id) }
         end
         key = billing_idempotency_key("subscription_create")
         prior_attempt = BillingAttempt.find_by(idempotency_key: key)
@@ -68,7 +71,7 @@ module Billing
         sub.update!(provider_subscription_id: provider_sub.fetch("id"))
         attempt.succeed!(provider_resource_id: provider_sub.fetch("id"), response_payload: provider_sub)
       end
-      render json: { subscription: sub, checkout: { mode: "razorpay", keyId: RazorpayConfig.key_id, subscriptionId: provider_sub.fetch("id") } }
+      render json: { subscription: sub, checkout: razorpay_checkout(provider_sub.fetch("id")) }
     rescue RazorpayGateway::GatewayError => error
       attempt&.fail_from!(error)
       sub&.update!(status: "cancelled") unless error.ambiguous?
@@ -80,11 +83,14 @@ module Billing
       render_error(error.ambiguous? ? "Billing provider outcome is pending reconciliation. Do not retry with a new request." : error.message, :bad_gateway)
     end
 
+    # Pending (never authorised) mandates, trials and past-due plans are cancelled immediately at
+    # Razorpay: nothing has been paid for, so there is no cycle to honour. An active paid plan is
+    # cancelled at cycle end and keeps its access until `current_period_end`.
     def cancel
       return unless authenticate!
       sub = current_subscription or return render_error("No active subscription", :not_found)
-      # Mandates the customer never authorised have no billing cycle: cancel them immediately
-      # so they stop blocking a plan change. Authorised plans are cancelled at cycle end.
+      return render_error("Cancellation is already scheduled.", :conflict, "CANCELLATION_SCHEDULED") if sub.cancel_at_period_end && sub.status == "active"
+
       unauthorised = Subscription.where(user: current_user, provider: "razorpay", status: "pending").where.not(provider_subscription_id: nil).to_a
       needs_provider = unauthorised.any? || (sub.provider == "razorpay" && sub.provider_subscription_id.present?)
       return render_error("Live billing is not configured.", :service_unavailable) if needs_provider && !RazorpayConfig.usable?
@@ -93,13 +99,25 @@ module Billing
         gateway.cancel_subscription(pending.provider_subscription_id, at_cycle_end: false)
         pending.update!(status: "cancelled")
       end
-      if sub.status != "pending"
-        gateway.cancel_subscription(sub.provider_subscription_id) if sub.provider == "razorpay" && sub.provider_subscription_id.present?
+      outcome = "cancelled"
+      if sub.status == "pending"
+        sub.update!(status: "cancelled") if sub.provider != "razorpay" || sub.provider_subscription_id.blank?
+      elsif sub.provider == "razorpay" && sub.provider_subscription_id.present?
+        at_cycle_end = sub.status == "active"
+        entity = gateway.cancel_subscription(sub.provider_subscription_id, at_cycle_end:)
+        if at_cycle_end
+          sub.update!(cancel_at_period_end: true)
+          outcome = "scheduled"
+        else
+          sub.update!(cancel_at_period_end: true)
+          sub.apply_provider_status!(new_status: "cancelled", event_at: Time.current, event_id: "cancel:#{sub.provider_subscription_id}") if entity.is_a?(Hash) && %w[cancelled completed].include?(entity["status"])
+        end
+      else
         sub.update!(cancel_at_period_end: true)
-      elsif sub.provider != "razorpay" || sub.provider_subscription_id.blank?
-        sub.update!(status: "cancelled")
+        outcome = "scheduled"
       end
-      render json: { ok: true }
+      audit!("billing.cancel", sub, { outcome: })
+      render json: { ok: true, outcome:, accessEndsAt: outcome == "scheduled" ? sub.current_period_end : nil }
     rescue RazorpayGateway::GatewayError => error
       render_error(error.message, :bad_gateway)
     end
@@ -136,6 +154,39 @@ module Billing
     end
 
     private
+    def razorpay_checkout(subscription_id)
+      { mode: "razorpay", keyId: RazorpayConfig.key_id, subscriptionId: subscription_id }.merge(RazorpayConfig.simulator? ? { simulator: true } : {})
+    end
+
+    def billing_summary(sub)
+      return nil unless sub
+
+      scheduled = sub.cancel_at_period_end && sub.status == "active"
+      status = scheduled ? "cancelling" : sub.status
+      next_charge = case sub.status
+      when "trialing" then sub.trial_ends_at
+      when "active" then scheduled ? nil : sub.current_period_end
+      end
+      access_ends = case sub.status
+      when "trialing" then sub.trial_ends_at
+      when "active" then scheduled ? sub.current_period_end : nil
+      end
+      { status:, planCode: sub.plan_code, planName: PLANS.dig(sub.plan_code, :name) || sub.plan_code, provider: sub.provider,
+        trialEndsAt: sub.trial_ends_at, currentPeriodStart: sub.current_period_start, currentPeriodEnd: sub.current_period_end,
+        nextChargeAt: next_charge, accessEndsAt: access_ends, cancelAtPeriodEnd: sub.cancel_at_period_end, monthlyAmount: PLANS.dig(sub.plan_code, :monthly) }
+    end
+
+    # Subscription charges recorded from signed webhooks (newest first). Amounts are Razorpay paise.
+    def billing_history
+      BillingEvent.where(user: current_user, event_type: %w[subscription.charged subscription.pending]).order(created_at: :desc).limit(50).filter_map do |event|
+        payment = event.payload.is_a?(Hash) ? event.payload.dig("payload", "payment", "entity") : nil
+        next unless payment.is_a?(Hash) && payment["id"].present?
+
+        { paymentId: payment["id"], invoiceId: payment["invoice_id"], amount: payment["amount"].to_i / 100.0, currency: payment["currency"].to_s.upcase,
+          status: payment["status"], at: payment["created_at"].present? ? Time.at(payment["created_at"].to_i).utc : event.created_at, event: event.event_type }
+      end.uniq { _1[:paymentId] }
+    end
+
     def trial_days_for(code)
       Subscription.where(user: current_user).where.not(plan_code: "free").exists? ? 0 : PLANS[code][:trialDays]
     end
@@ -149,7 +200,7 @@ module Billing
     def render_attempt(attempt)
       resource = attempt.resource_type.safe_constantize&.find_by(id: attempt.resource_id)
       if attempt.state == "succeeded" && resource.is_a?(Subscription) && resource.provider_subscription_id.present?
-        return render json: { subscription: resource, checkout: { mode: "razorpay", keyId: RazorpayConfig.key_id, subscriptionId: resource.provider_subscription_id }, idempotent: true }
+        return render json: { subscription: resource, checkout: razorpay_checkout(resource.provider_subscription_id), idempotent: true }
       end
       render_error(attempt.state == "ambiguous" ? "Billing provider outcome is pending reconciliation. Do not retry with a new request." : "Billing request is already being processed.", :conflict)
     end
