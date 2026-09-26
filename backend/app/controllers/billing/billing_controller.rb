@@ -110,7 +110,11 @@ module Billing
           outcome = "scheduled"
         else
           sub.update!(cancel_at_period_end: true)
-          sub.apply_provider_status!(new_status: "cancelled", event_at: Time.current, event_id: "cancel:#{sub.provider_subscription_id}") if entity.is_a?(Hash) && %w[cancelled completed].include?(entity["status"])
+          # Razorpay just confirmed the cancellation synchronously. Its webhook timestamps can run a
+          # few seconds ahead of our clock, so never stamp this earlier than the last provider state
+          # or the ordering guard would discard a cancellation the provider already made.
+          confirmed_at = [Time.current, sub.provider_state_at].compact.max
+          sub.apply_provider_status!(new_status: "cancelled", event_at: confirmed_at, event_id: "cancel:#{sub.provider_subscription_id}") if entity.is_a?(Hash) && %w[cancelled completed].include?(entity["status"])
         end
       else
         sub.update!(cancel_at_period_end: true)

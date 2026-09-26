@@ -130,3 +130,11 @@ input::placeholder, textarea::placeholder { color: #7f89a4; opacity: 1; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
 }
+
+/* Phones and tablets show a fixed bottom "Quick navigation" bar (hidden from lg up). Reserve room
+   for it so the last buttons on every signed-in page can be scrolled clear of it and tapped. */
+@media (max-width: 1023.98px) {
+  body:has(nav[aria-label="Quick navigation"]) { padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+  /* Focus, validation errors and scrollIntoView must stop above the bar, not underneath it. */
+  html:has(nav[aria-label="Quick navigation"]) { scroll-padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px)); }
+}

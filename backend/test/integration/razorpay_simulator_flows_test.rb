@@ -194,6 +194,19 @@ class RazorpaySimulatorFlowsTest < ActionDispatch::IntegrationTest
     assert_equal "cancelled", Subscription.find_by!(provider_subscription_id: sub_id).status
   end
 
+  test "a confirmed trial cancellation applies even when Razorpay's clock is ahead of ours" do
+    sub_id = start_checkout("pro")
+    deliver_all(simulate_checkout(subscriptionId: sub_id, outcome: "success").fetch("webhooks"))
+    local = Subscription.find_by!(provider_subscription_id: sub_id)
+    local.update_columns(provider_state_at: 5.seconds.from_now)
+
+    post "/api/billing/cancel", headers: auth, as: :json
+    assert_response :success
+    assert_equal "cancelled", local.reload.status
+    get "/api/billing/subscription", headers: auth
+    assert_equal "cancelled", response.parsed_body.dig("summary", "status")
+  end
+
   test "plan, amount and currency never come from the client" do
     post "/api/billing/checkout", params: { planCode: "pro", planId: "plan_SimStudio", amount: 1, currency: "USD", trialDays: 365 }, headers: auth.merge("Idempotency-Key" => "tamper"), as: :json
     assert_response :success

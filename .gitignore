@@ -13,3 +13,4 @@ test-results/
 dist-qa-*/
 backend/log/
 backend/tmp/
+backend/storage/

@@ -167,12 +167,15 @@ test.describe('payments against the Razorpay simulator', () => {
     // Every other metered action returns the same contract the prompt listens for.
     const owner = await register(request, 'jobseeker', 'Act Owner QA');
     for (let i = 0; i < 2; i += 1) {
-      expect((await call(request, user.token, 'post', '/bookings', {actId: await actFor(request, owner.token), eventType: 'concert', city: 'Mumbai'})).status).toBe(201);
+      expect((await call(request, user.token, 'post', '/bookings', {actId: await actFor(request, owner.token), eventType: 'concert', city: 'Mumbai', eventDate: futureDate()})).status).toBe(201);
     }
-    const third = await call(request, user.token, 'post', '/bookings', {actId: await actFor(request, owner.token), eventType: 'concert', city: 'Mumbai'});
+    const third = await call(request, user.token, 'post', '/bookings', {actId: await actFor(request, owner.token), eventType: 'concert', city: 'Mumbai', eventDate: futureDate()});
     expect(third.status).toBe(402);
     expect(third.body.code).toBe('PLAN_LIMIT_REACHED');
   });
+
+  // Bookings require a future event date.
+  function futureDate() { return new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10); }
 
   async function actFor(request: APIRequestContext, ownerToken: string) {
     const act = await call(request, ownerToken, 'post', '/acts', {name: `QA Act ${randomUUID().slice(0, 6)}`, actType: 'band', city: 'Mumbai'});
@@ -183,7 +186,7 @@ test.describe('payments against the Razorpay simulator', () => {
   async function acceptedBooking(request: APIRequestContext, requesterToken: string) {
     const owner = await register(request, 'jobseeker', 'Deposit Act Owner');
     const act = await call(request, owner.token, 'post', '/acts', {name: `Deposit Act ${randomUUID().slice(0, 6)}`, actType: 'band', city: 'Pune'});
-    const booking = await call(request, requesterToken, 'post', '/bookings', {actId: act.body.id, eventType: 'concert', city: 'Pune', eventName: 'Deposit QA night'});
+    const booking = await call(request, requesterToken, 'post', '/bookings', {actId: act.body.id, eventType: 'concert', city: 'Pune', eventName: 'Deposit QA night', eventDate: futureDate()});
     expect(booking.status, JSON.stringify(booking.body)).toBe(201);
     const quote = await call(request, owner.token, 'post', `/bookings/${booking.body.id}/quote`, {performanceFee: 40000, travelFee: 2000, depositPercent: 25, currency: 'INR', cancellationTerms: 'Deposit refundable until 14 days before.'});
     expect(quote.status, JSON.stringify(quote.body)).toBe(201);

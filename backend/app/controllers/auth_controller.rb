@@ -19,7 +19,8 @@ class AuthController < ApplicationController
   PRODUCTION_FRONTEND_URL = "https://verse-music-platform.vercel.app".freeze
 
   def register
-    return unless throttle!("register", limit: 20, period: 1.hour)
+    # Shared campus, office and mobile-carrier IPs sign up many real users; keep bulk abuse bounded.
+    return unless throttle!("register", limit: 60, period: 1.hour)
     role = params[:role].to_s
     return render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE") unless %w[jobseeker employer].include?(role)
 
