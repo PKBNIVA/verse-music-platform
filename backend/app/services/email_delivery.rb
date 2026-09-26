@@ -124,4 +124,45 @@ class EmailDelivery
   end
 
   private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html, :email_text, :email_body_value, :log_rejection
+
+  # --- Notification emails (messaging/notifications area) -----------------------
+  # Sends content already rendered by NotificationEmail through the configured
+  # provider. Same result/raise_errors contract as .call; logs never include content.
+  def self.deliver_rendered(to:, template:, subject:, html:, text:, raise_errors: false)
+    return { delivered: false, reason: "Recipient unavailable" } if to.blank?
+
+    provider_name = provider
+    return { delivered: false, reason: "Email provider not configured" } unless provider_name
+
+    response = Faraday.post(rendered_endpoint(provider_name)) do |request|
+      request.headers["Content-Type"] = "application/json"
+      request.headers["Accept"] = "application/json"
+      case provider_name
+      when "brevo"
+        request.headers["api-key"] = ENV.fetch("BREVO_API_KEY")
+        request.body = { sender: { name: ENV.fetch("BREVO_SENDER_NAME", "Verse"), email: ENV.fetch("BREVO_SENDER_EMAIL") },
+          to: [{ email: to }], subject:, htmlContent: html, textContent: text }.to_json
+      when "resend"
+        request.headers["Authorization"] = "Bearer #{ENV.fetch('RESEND_API_KEY')}"
+        request.body = { from: ENV.fetch("EMAIL_FROM"), to: [to], subject:, html:, text: }.to_json
+      else
+        request.headers["Authorization"] = "Bearer #{ENV['EMAIL_DELIVERY_TOKEN']}" if ENV["EMAIL_DELIVERY_TOKEN"].present?
+        request.body = { to:, template:, data: { subject:, html:, text: } }.to_json
+      end
+      request.options.open_timeout = 5
+      request.options.timeout = 10
+    end
+    log_rejection(provider_name, template, response)
+    { delivered: response.success?, status: response.status, provider: provider_name }
+  rescue StandardError => error
+    raise if raise_errors
+    Rails.logger.error("notification email delivery failed: #{error.class}")
+    { delivered: false, reason: "delivery error" }
+  end
+
+  def self.rendered_endpoint(provider_name)
+    { "brevo" => "https://api.brevo.com/v3/smtp/email", "resend" => "https://api.resend.com/emails" }
+      .fetch(provider_name) { ENV.fetch("EMAIL_DELIVERY_WEBHOOK") }
+  end
+  private_class_method :rendered_endpoint
 end

@@ -44,7 +44,7 @@ module Employer
         application.update!(changes)
         if requested_status
           application.application_events.create!(actor: current_user, event_type: "status_changed", from_status: from, to_status: application.status, note: params[:note])
-          Notification.create!(user: application.candidate, kind: "application_status", title: "Application update", body: "#{application.job.title}: #{application.status}", link: "/jobseeker/applications")
+          Notifier.application_status(application)
         else
           application.application_events.create!(actor: current_user, event_type: "recruiter_annotation", from_status: from, to_status: from)
         end

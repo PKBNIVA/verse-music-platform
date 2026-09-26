@@ -47,7 +47,7 @@ class JobsController < ApplicationController
     return render_error("This opportunity requires at least one portfolio item.", :conflict) if job.portfolio_required? && current_user.portfolio_items.none?
     application = job.applications.create!(candidate: current_user, cover_letter: params[:coverLetter], screening_answers: params[:screeningAnswers] || [])
     application.application_events.create!(actor: current_user, event_type: "created", to_status: "Applied")
-    Notification.create!(user: job.employer, kind: "application", title: "New application", body: "#{current_user.name} applied to #{job.title}.", link: "/hiring/applicants")
+    Notifier.new_application(application)
     audit!("application.create", application)
     render json: { id: application.id, status: application.status }, status: :created
   rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid => error
