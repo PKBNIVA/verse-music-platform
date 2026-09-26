@@ -18,6 +18,7 @@ class DemoDataPurgeJob < ApplicationJob
     })
   rescue StandardError => error
     Rails.logger.error({ event: "demo_data.purge_failed", jobId: job_id, error: error.class.name }.to_json)
+    ErrorReporter.capture(error, tags: { source: "demo_data.purge_failed", job_class: self.class.name, job_id: })
     SyntheticQa::DemoJobs.record!(job_id, "failed", actor_id: admin_id, error: error.message.first(300))
   end
 end

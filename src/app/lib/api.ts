@@ -1,3 +1,5 @@
+import { reportApiFailure } from './monitoring';
+
 export const API_BASE = (import.meta as any).env?.VITE_API_URL || '/api';
 
 const DEFAULT_TIMEOUT_MS = 12_000;
@@ -190,11 +192,21 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       }
 
       if (response.status === 204) return undefined as T;
-      const data = await response.json().catch(() => ({}));
+      // A success that is not JSON means the request never reached the API (for example the
+      // SPA's index.html served for /api/* when VITE_API_URL is missing). Treat it as an error
+      // instead of rendering empty data as if everything worked.
+      const isJson = /json/i.test(response.headers.get('content-type') || '');
+      const parsed = isJson ? await response.json().catch(() => undefined) : undefined;
+      if (response.ok && parsed === undefined) {
+        reportApiFailure({ status: response.status, code: 'INVALID_RESPONSE', method, path, requestId: requestIdFor(response) });
+        throw new ApiError('Verse received an unexpected response. Please try again shortly.', response.status, 'INVALID_RESPONSE', requestIdFor(response));
+      }
+      const data = parsed ?? {};
       const requestId = requestIdFor(response, data);
       if (response.status === 401) redirectAfterUnauthorized(path, token, skipAuthRedirect);
       if (!response.ok) {
         if (response.status === 402 && PLAN_LIMIT_CODES.has(data.code)) announcePlanLimit(data.error);
+        if (response.status >= 500) reportApiFailure({ status: response.status, code: data.code, method, path, requestId });
         throw new ApiError(data.error || `Request failed (${response.status})`, response.status, data.code, requestId);
       }
       return data;
@@ -202,6 +214,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       if (error instanceof ApiError) throw error;
       if (signal?.aborted) throw error;
       if (error instanceof RequestDeadlineError) {
+        reportApiFailure({ status: 0, code: 'REQUEST_TIMEOUT', method, path });
         throw new ApiError('Request timed out. Please try again.', 0, 'REQUEST_TIMEOUT');
       }
       if (canRetry && attempt === 0) {
@@ -212,6 +225,7 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
         }
       }
       const timedOut = error instanceof DOMException && error.name === 'AbortError';
+      reportApiFailure({ status: 0, code: timedOut ? 'REQUEST_TIMEOUT' : 'NETWORK_ERROR', method, path });
       throw new ApiError(
         timedOut ? 'Request timed out. Please try again.' : 'Network request failed. Check your connection and try again.',
         0,

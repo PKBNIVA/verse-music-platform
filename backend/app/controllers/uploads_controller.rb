@@ -18,8 +18,8 @@ class UploadsController < ApplicationController
 
   def presign
     content_type = MediaTypeSniffer.canonical(params[:contentType])
-    return render_error("Unsupported file type. Upload MP3, WAV, MP4, JPEG, PNG, WebP or PDF.", :unprocessable_entity, "UNSUPPORTED_TYPE") unless ALLOWED_TYPES.include?(content_type)
-    return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_entity, "FILE_TOO_LARGE") unless params[:size].to_i.between?(1, MAX_SIZE)
+    return render_error("Unsupported file type. Upload MP3, WAV, MP4, JPEG, PNG, WebP or PDF.", :unprocessable_content, "UNSUPPORTED_TYPE") unless ALLOWED_TYPES.include?(content_type)
+    return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_content, "FILE_TOO_LARGE") unless params[:size].to_i.between?(1, MAX_SIZE)
 
     if UploadStorage.direct?
       return render_error("Upload storage is misconfigured.", :service_unavailable, "STORAGE_MISCONFIGURED") unless UploadStorage.ready?
@@ -50,7 +50,7 @@ class UploadsController < ApplicationController
     end
     if problem
       upload.purge!
-      return render_error(problem, :unprocessable_entity, "UPLOAD_REJECTED")
+      return render_error(problem, :unprocessable_content, "UPLOAD_REJECTED")
     end
 
     upload.update!(status: "complete", completed_at: Time.current)
@@ -68,18 +68,18 @@ class UploadsController < ApplicationController
   def local
     return render_error("Persistent uploads are disabled.", :forbidden) unless UploadStorage.local_allowed?
     declared = MediaTypeSniffer.canonical(request.content_type)
-    return render_error("Unsupported file type. Upload MP3, WAV, MP4, JPEG, PNG, WebP or PDF.", :unprocessable_entity, "UNSUPPORTED_TYPE") unless ALLOWED_TYPES.include?(declared)
-    return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_entity, "FILE_TOO_LARGE") if request.content_length.to_i > MAX_SIZE
+    return render_error("Unsupported file type. Upload MP3, WAV, MP4, JPEG, PNG, WebP or PDF.", :unprocessable_content, "UNSUPPORTED_TYPE") unless ALLOWED_TYPES.include?(declared)
+    return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_content, "FILE_TOO_LARGE") if request.content_length.to_i > MAX_SIZE
 
     Tempfile.create(["verse-upload", ".bin"], binmode: true) do |file|
       size = stream_body_to(file)
-      return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_entity, "FILE_TOO_LARGE") if size > MAX_SIZE
-      return render_error("File is empty.", :unprocessable_entity, "FILE_EMPTY") if size.zero?
+      return render_error("File is too large. The limit is #{MAX_SIZE / 1.megabyte} MB.", :unprocessable_content, "FILE_TOO_LARGE") if size > MAX_SIZE
+      return render_error("File is empty.", :unprocessable_content, "FILE_EMPTY") if size.zero?
 
       file.rewind
       detected = MediaTypeSniffer.detect(file.read(MediaTypeSniffer::HEADER_BYTES))
       unless detected && detected == declared
-        return render_error("File contents do not match the declared type.", :unprocessable_entity, "UPLOAD_REJECTED")
+        return render_error("File contents do not match the declared type.", :unprocessable_content, "UPLOAD_REJECTED")
       end
 
       file.rewind

@@ -15,8 +15,8 @@ class ReviewsController < ApplicationController
     outcome = Review.transaction do
       # reviews has no unique (author_id, employer_id) index, so concurrent submissions are
       # serialized per pair with a transaction-scoped advisory lock instead.
-      lock_key = Review.connection.quote("review:#{current_user.id}:#{employer.id}")
-      Review.connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{lock_key}))")
+      lock_key = Review.lease_connection.quote("review:#{current_user.id}:#{employer.id}")
+      Review.lease_connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{lock_key}))")
       if Review.exists?(author_id: current_user.id, employer_id: employer.id)
         :duplicate
       elsif !eligible_employers.exists?(id: employer.id)
@@ -33,7 +33,7 @@ class ReviewsController < ApplicationController
   private
 
   def render_invalid_employer
-    render_error("employerId must be a single employer id.", :unprocessable_entity, "INVALID_EMPLOYER")
+    render_error("employerId must be a single employer id.", :unprocessable_content, "INVALID_EMPLOYER")
   end
 
   # Shared by the form response and create authorization to prevent contract drift.

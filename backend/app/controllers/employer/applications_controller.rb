@@ -28,12 +28,12 @@ module Employer
       if requested_status
         return render_error("Invalid application status.", :bad_request) unless Application::STATUS_TRANSITIONS.key?(requested_status)
         return render_error("Invalid application status change.", :conflict) unless application.can_transition_to?(requested_status)
-        return render_error("Interview date is required.", :unprocessable_entity) if requested_status == "Interview Scheduled" && params[:interviewDate].blank?
+        return render_error("Interview date is required.", :unprocessable_content) if requested_status == "Interview Scheduled" && params[:interviewDate].blank?
       end
 
       rating = params[:recruiterRating]
       if rating.present? && !rating.to_s.match?(/\A[1-5]\z/)
-        return render_error("Recruiter rating must be between 1 and 5.", :unprocessable_entity)
+        return render_error("Recruiter rating must be between 1 and 5.", :unprocessable_content)
       end
       if requested_status.blank? && !params.key?(:recruiterNote) && !params.key?(:recruiterRating)
         return render_error("No application changes supplied.", :bad_request)

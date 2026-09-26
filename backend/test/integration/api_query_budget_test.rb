@@ -93,7 +93,7 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
       get resolved, headers: world.headers(actor) # warm-up (schema, prepared statements)
       # The transactional test connection keeps its query cache across requests; without this
       # the measured request would be served from the warm-up's cache.
-      ActiveRecord::Base.connection.clear_query_cache
+      ActiveRecord::Base.lease_connection.clear_query_cache
       count = ApiMatrixWorld.count_queries { get resolved, headers: world.headers(actor) }
       assert_equal 200, response.status, "#{resolved}: #{response.body.first(200)}"
       [[path, actor], [count, parsed_json(path).to_s.length]]

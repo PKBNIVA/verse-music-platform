@@ -22,9 +22,9 @@ class MessagesController < ApplicationController
 
   def create
     body = params[:body].to_s.strip
-    return render_error("Write a message before sending.", :unprocessable_entity, "MESSAGE_EMPTY") if body.empty?
+    return render_error("Write a message before sending.", :unprocessable_content, "MESSAGE_EMPTY") if body.empty?
     if body.length > MAX_LENGTH
-      return render_error("Messages can be at most #{MAX_LENGTH} characters.", :unprocessable_entity, "MESSAGE_TOO_LONG")
+      return render_error("Messages can be at most #{MAX_LENGTH} characters.", :unprocessable_content, "MESSAGE_TOO_LONG")
     end
     return unless within_user_rate_limit?("message", limit: SEND_LIMIT_PER_HOUR, period: 1.hour)
 

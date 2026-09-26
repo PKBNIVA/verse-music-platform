@@ -5,6 +5,9 @@ Rails.application.configure do
   config.good_job.enable_cron = ENV.fetch("GOOD_JOB_ENABLE_CRON", Rails.env.production?.to_s) == "true"
   config.good_job.preserve_job_records = true
   config.good_job.retry_on_unhandled_error = false
+  # Errors inside GoodJob itself (not in a job) go to the error tracker; job failures are
+  # reported by ApplicationJob#after_discard. Both are no-ops without SENTRY_DSN.
+  config.good_job.on_thread_error = ->(error) { ErrorReporter.capture(error, tags: { source: "good_job_thread" }) }
   config.good_job.cron = {
     job_alert_sweep: {
       cron: "*/15 * * * *",

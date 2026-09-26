@@ -24,7 +24,7 @@ class AdminOperationsHardeningTest < ActionDispatch::IntegrationTest
     post "/api/admin/users/#{@studio.id}/grant-plan", params: { planCode: "pro", days: ["30"] }, headers: auth(@token), as: :json
     assert_response :bad_request
     post "/api/admin/users/#{@admin.id}/grant-plan", params: { planCode: "pro" }, headers: auth(@token), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal 0, Subscription.where(user: [@studio, @admin]).count
 
     post "/api/admin/users/#{@studio.id}/grant-plan", params: { planCode: "studio", days: 45 }, headers: auth(@token), as: :json

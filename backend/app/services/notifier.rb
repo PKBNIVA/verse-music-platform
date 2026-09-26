@@ -104,6 +104,7 @@ class Notifier
     rescue StandardError => error
       # The in-app notification is the record of truth; a queue failure must not fail the request.
       Rails.logger.error({ event: "notification_email_enqueue_failed", template:, error: error.class.name }.to_json)
+      ErrorReporter.capture(error, tags: { source: "notification_email_enqueue_failed", template: })
     end
   end
 end

@@ -22,9 +22,9 @@ class UrgentRequestsController < ApplicationController
   end
   def respond
     item = UrgentRequest.where(status: "open").find(params[:id]); return render_error("You cannot respond to your own request.", :conflict) if item.requester_id == current_user.id
-    return render_error("Keep your note under 1,000 characters.", :unprocessable_entity) if params[:message].to_s.length > 1_000
+    return render_error("Keep your note under 1,000 characters.", :unprocessable_content) if params[:message].to_s.length > 1_000
     rate = params[:rate].presence
-    return render_error("Rate must be a whole number of 0 or more.", :unprocessable_entity) if rate && !rate.to_s.match?(/\A\d{1,9}\z/)
+    return render_error("Rate must be a whole number of 0 or more.", :unprocessable_content) if rate && !rate.to_s.match?(/\A\d{1,9}\z/)
     UrgentRequestResponse.upsert({ urgent_request_id: item.id, user_id: current_user.id, message: params[:message].to_s.strip.presence, rate: rate&.to_i, status: "available", created_at: Time.current, updated_at: Time.current }, unique_by: :idx_urgent_response_unique)
     Notification.create!(user: item.requester, kind: "urgent_response", title: "Availability response", body: "#{current_user.name} responded to #{item.title}.", link: "/urgent-requests")
     render json: { ok: true }, status: :created

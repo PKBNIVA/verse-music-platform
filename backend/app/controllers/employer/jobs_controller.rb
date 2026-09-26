@@ -45,9 +45,9 @@ module Employer
         flags = moderation_flags_for(job.attributes)
         job.moderation_note = flags.join("; ").presence
       end
-      return render_error(job.errors.full_messages.to_sentence, :unprocessable_entity) unless job.valid?
+      return render_error(job.errors.full_messages.to_sentence, :unprocessable_content) unless job.valid?
       if target == "pending" && (error = submission_error(job))
-        return render_error(error, :unprocessable_entity)
+        return render_error(error, :unprocessable_content)
       end
 
       Job.transaction do

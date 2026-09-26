@@ -18,10 +18,10 @@ class UploadContractTest < ActionDispatch::IntegrationTest
 
   test "upload preparation rejects unsupported MIME and excessive size before storage" do
     post "/api/uploads/presign", params: { filename: "script.html", contentType: "text/html", size: 42 }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/uploads/presign", params: { filename: "sample.mp3", contentType: "audio/mpeg", size: 100.megabytes + 1 }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
   end
 
   test "test environment advertises the authenticated local upload fallback" do
@@ -31,7 +31,7 @@ class UploadContractTest < ActionDispatch::IntegrationTest
     assert_equal "/api/uploads/local", response.parsed_body.fetch("uploadUrl")
 
     put "/api/uploads/local", params: "<script>unsafe</script>", headers: auth.merge("CONTENT_TYPE" => "text/html", "X-Filename" => "script.html")
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
   end
 
   private

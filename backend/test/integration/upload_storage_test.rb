@@ -68,7 +68,7 @@ class UploadStorageTest < ActionDispatch::IntegrationTest
       too_big = presign("song.mp3", "audio/mpeg", MP3.bytesize)
       @objects[too_big.key] = { body: MP3 + "extra", type: "audio/mpeg" }
       post "/api/uploads/#{too_big.id}/complete", headers: auth
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
       assert_match(/size/, response.parsed_body["error"])
       assert_not @objects.key?(too_big.key)
       assert_not Upload.exists?(too_big.id)
@@ -76,7 +76,7 @@ class UploadStorageTest < ActionDispatch::IntegrationTest
       disguised = presign("song.mp3", "audio/mpeg", 31)
       @objects[disguised.key] = { body: "<html><script>x</script></html>", type: "audio/mpeg" }
       post "/api/uploads/#{disguised.id}/complete", headers: auth
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
       assert_match(/contents/, response.parsed_body["error"])
       assert_not @objects.key?(disguised.key)
 
@@ -106,7 +106,7 @@ class UploadStorageTest < ActionDispatch::IntegrationTest
       assert_response :success
 
       post "/api/portfolio", params: { type: "audio", title: "Stolen", url: pending.public_url }, headers: other_auth, as: :json
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
 
       assert_rejected_sample("https://verse-test.s3.ap-south-1.amazonaws.com/uploads/someone/else.mp3", /own completed uploads/)
       assert_rejected_sample("http://example.com/track", /HTTPS/)
@@ -184,11 +184,11 @@ class UploadStorageTest < ActionDispatch::IntegrationTest
     end
 
     put "/api/uploads/local", params: "<svg onload=alert(1)>", headers: auth.merge("CONTENT_TYPE" => "image/png", "X-Filename" => "x.png")
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     put "/api/uploads/local", params: PNG, headers: auth.merge("CONTENT_TYPE" => "audio/mpeg", "X-Filename" => "x.mp3")
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     put "/api/uploads/local", params: "", headers: auth.merge("CONTENT_TYPE" => "image/png", "X-Filename" => "x.png")
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal 3, Upload.count
   end
 
@@ -256,7 +256,7 @@ class UploadStorageTest < ActionDispatch::IntegrationTest
 
   def assert_rejected_sample(url, message)
     post "/api/portfolio", params: { type: "audio", title: "Sample", url: }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match message, response.parsed_body["error"]
   end
 

@@ -28,7 +28,7 @@ class BookingsController < ApplicationController
       Notifier.booking_enquiry(booking)
       audit!("booking.create", booking)
     end
-    return render_error(date_error, :unprocessable_entity) if date_error
+    return render_error(date_error, :unprocessable_content) if date_error
     render json: { id: booking.id }, status: :created
   rescue Entitlements::LimitReached => error
     render_error(error.message, :payment_required, Entitlements::ERROR_CODE)
@@ -77,7 +77,7 @@ class BookingsController < ApplicationController
       existing = nil if existing&.unissued_expired? && existing.expire_unissued!
       unless payment_error || existing
         amount = (quote.total * quote.deposit_percent / 100.0).round
-        payment_error = ["Deposit amount must be greater than zero.", :unprocessable_entity] unless amount.positive?
+        payment_error = ["Deposit amount must be greater than zero.", :unprocessable_content] unless amount.positive?
         payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency.to_s.upcase, provider: RazorpayConfig.key_present? ? "razorpay" : "internal", status: "created") unless payment_error
         if payment&.provider == "razorpay"
           attempt = BillingAttempt.create!(user: current_user, operation: "booking_order_create", provider: "razorpay", idempotency_key: billing_idempotency_key("booking_order_create"), state: "pending", resource_type: "BookingPayment", resource_id: payment.id, request_payload: { booking_id: booking.id, amount: payment.amount * 100, currency: payment.currency }, last_attempted_at: Time.current)
@@ -117,9 +117,9 @@ class BookingsController < ApplicationController
     return render_error("Mock payments are disabled in production.", :forbidden) if Rails.env.production? && payment.provider != "razorpay"
     if payment.provider == "razorpay"
       return render_error("Live payments are not configured.", :service_unavailable) unless RazorpayConfig.usable?
-      return render_error("Payment order mismatch", :unprocessable_entity) unless payment.provider_order_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id, params[:orderId].to_s)
+      return render_error("Payment order mismatch", :unprocessable_content) unless payment.provider_order_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id, params[:orderId].to_s)
       expected = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_KEY_SECRET"), "#{payment.provider_order_id}|#{params[:paymentId]}")
-      return render_error("Invalid payment signature", :unprocessable_entity) unless ActiveSupport::SecurityUtils.secure_compare(expected, params[:signature].to_s)
+      return render_error("Invalid payment signature", :unprocessable_content) unless ActiveSupport::SecurityUtils.secure_compare(expected, params[:signature].to_s)
       # The signed payment.captured webhook often lands before the checkout handler calls back:
       # the same verified payment is then a success, not a conflict.
       if %w[paid refunded].include?(payment.status)
@@ -132,7 +132,7 @@ class BookingsController < ApplicationController
         provider_payment["order_id"].to_s == payment.provider_order_id &&
         provider_payment["amount"].to_i == payment.amount * 100 &&
         provider_payment["currency"].to_s.upcase == payment.currency
-      return render_error("Payment has not been captured for the expected amount.", :unprocessable_entity) unless valid_provider_payment
+      return render_error("Payment has not been captured for the expected amount.", :unprocessable_content) unless valid_provider_payment
 
       # Same ledger transition as the signed capture webhook (also recovers a capture after a reported decline).
       result = payment.apply_capture!(entity: provider_payment, event_at: Time.current, event_id: "checkout:#{params[:paymentId]}")

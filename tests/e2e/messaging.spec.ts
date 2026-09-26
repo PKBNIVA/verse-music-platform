@@ -130,7 +130,7 @@ test.describe('messages', () => {
     await box.pressSequentially('<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>');
     await box.press('Enter');
     await expect(page.getByTestId('message-body')).toHaveCount(1);
-    expect(state.sent).toEqual(['Line one 🎸\n<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>']);
+    await expect.poll(() => state.sent).toEqual(['Line one 🎸\n<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>']);
     await expect(box).toHaveValue('');
     const bubble = page.getByTestId('message-body');
     await expect(bubble).toHaveText('Line one 🎸\n<img src=x onerror="window.__xss=1"><script>window.__xss=2</script>');
@@ -269,18 +269,18 @@ test.describe('notifications', () => {
     const cards = page.getByTestId('notification');
     await cards.nth(0).getByRole('button', {name: 'Mark as read'}).click();
     await expect(cards.nth(0)).toHaveAttribute('data-read', 'true');
-    expect(state.patched).toEqual(['n1']);
+    await expect.poll(() => state.patched).toEqual(['n1']);
 
     await page.getByRole('button', {name: 'Mark all as read'}).click();
     await expect(page.locator('[data-testid="notification"][data-read="false"]')).toHaveCount(0);
-    expect(state.readAll).toBe(1);
+    await expect.poll(() => state.readAll).toBe(1);
     await expect(page.getByRole('button', {name: 'Mark all as read'})).toBeHidden();
 
     state.notifications = structuredClone(items.slice(1, 2));
     await page.reload();
     await page.getByTestId('notification').getByRole('link', {name: 'Open'}).click();
     await expect(page).toHaveURL(/\/employer\/bookings$/);
-    expect(state.patched).toContain('n2');
+    await expect.poll(() => state.patched).toContain('n2');
 
     state.notifications = [];
     await page.goto('/employer/notifications');
@@ -299,7 +299,7 @@ test.describe('email notification preference', () => {
 
     await toggle.click();
     await expect(toggle).toHaveAttribute('aria-checked', 'true');
-    expect(state.preferenceWrites).toEqual([true]);
+    await expect.poll(() => state.preferenceWrites).toEqual([true]);
 
     state.preferenceStatus = 503;
     await toggle.press('Space');
@@ -313,7 +313,7 @@ test.describe('email notification preference', () => {
     await page.addInitScript(() => localStorage.removeItem('verse_access_token'));
     await page.goto('/unsubscribe?token=good-token');
     await expect(page.getByTestId('unsubscribe-status')).toContainText('won’t get emails about messages, bookings or application updates');
-    expect(state.unsubscribeTokens).toEqual(['good-token']);
+    await expect.poll(() => state.unsubscribeTokens).toEqual(['good-token']);
     await expect(page).toHaveURL(/\/unsubscribe\?token=good-token$/);
 
     await page.goto('/unsubscribe?token=tampered');
@@ -321,6 +321,6 @@ test.describe('email notification preference', () => {
 
     await page.goto('/unsubscribe');
     await expect(page.getByTestId('unsubscribe-status')).toContainText('invalid or incomplete');
-    expect(state.unsubscribeTokens).toEqual(['good-token', 'tampered']);
+    await expect.poll(() => state.unsubscribeTokens).toEqual(['good-token', 'tampered']);
   });
 });

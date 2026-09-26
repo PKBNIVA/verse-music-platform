@@ -1,14 +1,25 @@
 class SearchController < ApplicationController
-  SYNONYMS = {
-    "sound guy" => ["foh engineer", "live sound engineer", "audio engineer"],
-    "singer" => ["vocalist", "playback singer"],
-    "guitar player" => ["guitarist"],
-    "bass player" => ["bassist"],
-    "drum player" => ["drummer"],
-    "music director" => ["musical director", "composer"],
-    "tech director" => ["technical director"],
-    "roadie" => ["backline technician", "stage technician"]
-  }.freeze
+  # Two-way synonym groups: searching any member also searches the others.
+  SYNONYM_GROUPS = [
+    ["singer", "vocalist", "playback singer", "lead vocalist"],
+    ["sound guy", "sound engineer", "foh engineer", "live sound engineer", "audio engineer"],
+    ["guitar player", "guitarist"],
+    ["bass player", "bassist"],
+    ["drum player", "drummer"],
+    ["keyboard player", "keyboardist", "keys player", "pianist"],
+    ["music director", "musical director"],
+    ["music producer", "record producer", "beatmaker"],
+    ["mixing engineer", "mix engineer"],
+    ["mastering engineer", "mastering"],
+    ["songwriter", "lyricist"],
+    ["composer", "film composer", "score composer"],
+    ["tech director", "technical director"],
+    ["roadie", "backline technician", "stage technician"],
+    ["dj", "disc jockey"],
+    ["violin player", "violinist"],
+    ["percussion player", "percussionist"],
+    ["tour manager", "road manager"]
+  ].freeze
   RESULT_TYPES = %w[jobs talent acts samples].freeze
 
   def index
@@ -29,13 +40,17 @@ class SearchController < ApplicationController
   private
 
   def expanded_terms(query)
-    [query, *SYNONYMS.select { |key, _| query.downcase.include?(key) }.values.flatten].reject(&:blank?).uniq
+    normalized = query.downcase.squish
+    related = SYNONYM_GROUPS.select { |group| group.any? { |term| normalized.match?(/(?<![a-z])#{Regexp.escape(term)}(?![a-z])/) } }
+    [query, *related.flatten].reject(&:blank?).uniq { _1.downcase }.first(12)
   end
 
   def job_results(terms)
     sql = terms.map { "(jobs.title ILIKE ? OR jobs.company ILIKE ? OR jobs.description ILIKE ? OR jobs.skills::text ILIKE ?)" }.join(" OR ")
     values = terms.flat_map { Array.new(4, "%#{ActiveRecord::Base.sanitize_sql_like(_1)}%") }
-    Job.published.includes(:employer).where(sql, *values).order(featured: :desc, created_at: :desc).limit(30).map do |job|
+    scope = Job.published.joins(:employer).includes(:employer)
+    scope = SyntheticQa::Demo.publicly_listed(scope) unless synthetic_viewer?
+    scope.where(sql, *values).order(featured: :desc, created_at: :desc).limit(30).map do |job|
       { type: "jobs", id: job.id, demo: SyntheticQa::Demo.user?(job.employer), url: "/opportunities/#{job.id}", title: job.title,
         subtitle: [job.company, job.location].compact.join(" · "), description: job.description,
         tags: [job.opportunity_kind, job.function_area, job.workplace, job.genre, *job.skills].compact.uniq }
@@ -58,7 +73,9 @@ class SearchController < ApplicationController
   def act_results(terms)
     sql = terms.map { "(acts.name ILIKE ? OR acts.tagline ILIKE ? OR acts.bio ILIKE ? OR acts.genres::text ILIKE ?)" }.join(" OR ")
     values = terms.flat_map { Array.new(4, "%#{ActiveRecord::Base.sanitize_sql_like(_1)}%") }
-    Act.includes(:owner).where(status: "active").where(sql, *values).order(verified: :desc, updated_at: :desc).limit(30).map do |act|
+    scope = Act.joins(:owner).includes(:owner).where(status: "active")
+    scope = SyntheticQa::Demo.publicly_listed(scope) unless synthetic_viewer?
+    scope.where(sql, *values).order(verified: :desc, updated_at: :desc).limit(30).map do |act|
       { type: "acts", id: act.id, demo: SyntheticQa::Demo.user?(act.owner), url: "/acts/#{act.id}", title: act.name,
         subtitle: [act.act_type, act.city].compact.join(" · "), description: act.tagline.presence || act.bio,
         tags: [act.act_type, *act.genres, *act.event_types].compact.uniq }

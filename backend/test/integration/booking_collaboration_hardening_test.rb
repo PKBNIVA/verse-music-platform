@@ -14,17 +14,17 @@ class BookingCollaborationHardeningTest < ActionDispatch::IntegrationTest
     base = { actId: @act.id, eventType: "wedding", eventDate: 2.months.from_now.to_date.iso8601, city: "Pune" }
 
     post "/api/bookings", params: base.except(:city), headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/City can't be blank/, response.parsed_body.fetch("error"))
     post "/api/bookings", params: base.except(:eventType), headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/bookings", params: base.merge(eventDate: "garbage"), headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "Choose a valid event date.", response.parsed_body.fetch("error")
     post "/api/bookings", params: base.merge(eventDate: "2020-01-01"), headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/bookings", params: base.merge(budgetMin: 9_000, budgetMax: 10), headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/bookings", params: base.merge(actId: "missing"), headers: auth(@buyer), as: :json
     assert_response :not_found
     assert_equal "This act is no longer available for booking.", response.parsed_body.fetch("error")
@@ -35,12 +35,12 @@ class BookingCollaborationHardeningTest < ActionDispatch::IntegrationTest
   test "quotes reject oversized fees and bad currencies and supersede the previous quote" do
     booking = create_booking
     post "/api/bookings/#{booking.id}/quote", params: { performanceFee: 10_000_000_000 }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/bookings/#{booking.id}/quote", params: { performanceFee: 1_000, currency: "rupees" }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/Currency must be a 3-letter code/, response.parsed_body.fetch("error"))
     post "/api/bookings/#{booking.id}/quote", params: { performanceFee: 0 }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/bookings/#{booking.id}/quote", params: { performanceFee: 1_000, currency: "inr" }, headers: auth(@artist), as: :json
     assert_response :created
@@ -120,29 +120,29 @@ class BookingCollaborationHardeningTest < ActionDispatch::IntegrationTest
 
   test "band projects workspaces and urgent responses reject blank or malformed input" do
     post "/api/band-projects", params: {}, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "MISSING_FIELD", response.parsed_body.fetch("code")
     post "/api/band-projects", params: { name: "Crew", genres: "rock" }, headers: auth(@artist), as: :json
     assert_response :created
     project_id = response.parsed_body.fetch("id")
     assert_equal ["rock"], BandProject.find(project_id).genres
     post "/api/band-projects/#{project_id}/roles", params: {}, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/band-projects/#{project_id}/roles", params: { roleName: "Drummer", countNeeded: 0 }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/band-projects/#{project_id}/roles", params: { roleName: "Drummer" }, headers: auth(@artist), as: :json
     assert_response :created
 
     post "/api/organizations", params: {}, headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/organizations", params: { name: "   " }, headers: auth(@buyer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     urgent = @buyer.urgent_requests.create!(title: "Need drummer", role_name: "Drummer", city: "Pune", currency: "INR", status: "open", start_at: 2.days.from_now)
     post "/api/urgent-requests/#{urgent.id}/respond", params: { rate: "abc" }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/urgent-requests/#{urgent.id}/respond", params: { message: "x" * 1_001 }, headers: auth(@artist), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/urgent-requests/#{urgent.id}/respond", params: { message: "Free that night", rate: "12000" }, headers: auth(@artist), as: :json
     assert_response :created
     assert_equal 12_000, UrgentRequestResponse.find_by(urgent_request_id: urgent.id, user_id: @artist.id).rate

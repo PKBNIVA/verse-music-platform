@@ -72,6 +72,7 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
     [:put, "/api/employer/applications/{received_application}", :talent, { params: { recruiterNote: "Strong" }, idor: true, bad: { recruiterRating: 9 }, bad_status: [422] }],
 
     [:get, "/api/admin/health", :admin, { ok: [200, 503], keys: %w[ok checks] }],
+    [:post, "/api/admin/health/sentry-test", :admin, { keys: %w[captured] }],
     [:get, "/api/admin/stats", :admin, { keys: %w[stats] }],
     [:get, "/api/admin/tester", :admin, { keys: %w[summary checks] }],
     [:get, "/api/admin/users", :admin, { keys: %w[users] }],

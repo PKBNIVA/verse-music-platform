@@ -141,14 +141,14 @@ class OtpAuthTest < ActionDispatch::IntegrationTest
   test "invalid sign-up details are rejected the same way for known and unknown addresses" do
     %w[coder@example.com nobody@example.com].each do |email|
       post "/api/auth/otp/request", params: { email:, name: "Admin Wannabe", role: "admin" }, as: :json
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
       assert_equal "INVALID_ROLE", response.parsed_body["code"]
       post "/api/auth/otp/request", params: { email:, name: "X", role: "employer" }, as: :json
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
       assert_equal "INVALID_NAME", response.parsed_body["code"]
     end
     post "/api/auth/otp/request", params: { email: "not-an-email" }, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "INVALID_EMAIL", response.parsed_body["code"]
   end
 

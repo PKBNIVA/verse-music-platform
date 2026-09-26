@@ -3,6 +3,7 @@ import { isRouteErrorResponse, useRouteError } from 'react-router';
 import { AlertTriangle, Home, RefreshCw } from 'lucide-react';
 import { BrandMark } from './BrandMark';
 import { Button } from './ui/button';
+import { reportError } from '../lib/monitoring';
 
 const CHUNK_RELOAD_KEY = 'verse_chunk_reload_at';
 // A reload that fails again inside this window shows the error page instead of reloading forever.
@@ -39,9 +40,17 @@ export function RouteErrorPage() {
   const reloading = chunkError && claimChunkReload();
 
   useEffect(() => {
-    if (reloading) window.location.reload();
-    else console.error('Verse route error', error);
-  }, [error, reloading]);
+    if (reloading) {
+      window.location.reload();
+      return;
+    }
+    console.error('Verse route error', error);
+    // A stale chunk reaches here only once the one automatic reload has already failed.
+    // Route responses such as 404 are expected and not reported.
+    if (!isRouteErrorResponse(error) || error.status >= 500) {
+      reportError(error, { tags: { source: chunkError ? 'route_chunk_load' : 'route_error' } });
+    }
+  }, [error, reloading, chunkError]);
 
   if (reloading) {
     return <div className="min-h-screen bg-slate-950 text-white grid place-items-center px-5" role="status" aria-live="polite"><div className="text-center"><div className="mx-auto w-fit animate-pulse"><BrandMark /></div><p className="mt-4 text-sm text-slate-400">Loading the latest version of Verse…</p></div></div>;

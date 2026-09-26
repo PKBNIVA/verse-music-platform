@@ -4,11 +4,11 @@ module Admin
       checks = []
       check = ->(name, pass, detail, severity = "critical") { checks << { name:, pass: !!pass, detail:, severity: } }
       query_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-      ActiveRecord::Base.connection.select_value("SELECT 1")
+      ActiveRecord::Base.lease_connection.select_value("SELECT 1")
       query_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - query_started) * 1_000).round(1)
-      check.call("PostgreSQL connection", ActiveRecord::Base.connection.active?, "#{ActiveRecord::Base.connection_db_config.adapter} · #{query_ms} ms")
+      check.call("PostgreSQL connection", ActiveRecord::Base.lease_connection.active?, "#{ActiveRecord::Base.connection_db_config.adapter} · #{query_ms} ms")
       %w[users profiles jobs applications portfolio_items acts booking_requests subscriptions recent_activities crew_plans audit_logs].each do |table|
-        check.call("Table: #{table}", ActiveRecord::Base.connection.data_source_exists?(table), "Available", "high")
+        check.call("Table: #{table}", ActiveRecord::Base.lease_connection.data_source_exists?(table), "Available", "high")
       end
       check.call("Production frontend URL", !Rails.env.production? || ENV["FRONTEND_URL"].to_s.start_with?("https://"), ENV["FRONTEND_URL"].presence || "Not configured", "high")
       persistent_storage = ENV["PERSISTENT_UPLOADS"] == "true" && Rails.root.join("storage").writable?
@@ -30,7 +30,7 @@ module Admin
       expired_sessions = Session.where("expires_at <= ?", Time.current).count
       check.call("Expired session backlog", expired_sessions < 1_000, "#{expired_sessions} pending cleanup", "low")
       required_indexes = %w[index_subscriptions_on_provider_subscription_id index_booking_payments_on_provider_order_id]
-      present_indexes = ActiveRecord::Base.connection.indexes(:subscriptions).map(&:name) + ActiveRecord::Base.connection.indexes(:booking_payments).map(&:name)
+      present_indexes = ActiveRecord::Base.lease_connection.indexes(:subscriptions).map(&:name) + ActiveRecord::Base.lease_connection.indexes(:booking_payments).map(&:name)
       missing_indexes = required_indexes - present_indexes
       check.call("Payment idempotency indexes", missing_indexes.empty?, missing_indexes.empty? ? "Available" : "Migration pending", "high")
       passed = checks.count { _1[:pass] }

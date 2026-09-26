@@ -23,13 +23,13 @@ module Admin
     def create
       size = params[:size].to_s
       counts = SyntheticQa::Demo::SIZES[size]
-      return render_error("Choose a size: #{SyntheticQa::Demo::SIZES.keys.join(', ')}.", :unprocessable_entity, "INVALID_SIZE") unless counts
+      return render_error("Choose a size: #{SyntheticQa::Demo::SIZES.keys.join(', ')}.", :unprocessable_content, "INVALID_SIZE") unless counts
 
       requested = counts.values.sum
       existing = SyntheticQa::Demo.users.count
       if existing + requested > SyntheticQa::Demo::MAX_USERS
         return render_error("Demo data is capped at #{SyntheticQa::Demo::MAX_USERS} users; #{existing} exist and #{size} adds #{requested}. Delete demo data first or choose a smaller size.",
-          :unprocessable_entity, "DEMO_CAP_EXCEEDED")
+          :unprocessable_content, "DEMO_CAP_EXCEEDED")
       end
 
       batch = SyntheticQa::Demo.next_batch_name
@@ -38,7 +38,7 @@ module Admin
 
     def destroy
       batch = params[:batch].to_s
-      return render_error("Only demo-* batches can be deleted here.", :unprocessable_entity, "NOT_A_DEMO_BATCH") unless SyntheticQa::Demo.batch?(batch)
+      return render_error("Only demo-* batches can be deleted here.", :unprocessable_content, "NOT_A_DEMO_BATCH") unless SyntheticQa::Demo.batch?(batch)
       return render_error("Demo batch not found.", :not_found) unless User.exists?(synthetic_batch: batch)
 
       enqueue(DemoDataPurgeJob.new(admin_id: current_user.id, batches: [batch]), kind: "purge", batch:)

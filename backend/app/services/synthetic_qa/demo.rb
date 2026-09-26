@@ -40,7 +40,7 @@ module SyntheticQa
     # Serialises the "is another demo job running?" check with the enqueue, across processes.
     # Returns :locked when another request holds the lock.
     def with_admin_lock
-      connection = ApplicationRecord.connection
+      connection = ApplicationRecord.lease_connection
       locked = connection.select_value("SELECT pg_try_advisory_lock(#{ADVISORY_LOCK_KEY})")
       return :locked unless locked
       yield

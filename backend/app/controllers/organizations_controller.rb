@@ -13,7 +13,7 @@ class OrganizationsController < ApplicationController
   end
 
   def create
-    return render_error("name is required.", :unprocessable_entity, "MISSING_FIELD") if params[:name].to_s.strip.empty?
+    return render_error("name is required.", :unprocessable_content, "MISSING_FIELD") if params[:name].to_s.strip.empty?
     org = Organization.create!(owner: current_user, name: params[:name].to_s.strip, org_type: params[:orgType], website: params[:website], city: params[:city], tax_id: params[:taxId], billing_email: params[:billingEmail], status: "active")
     org.organization_members.create!(user: current_user, role: "owner")
     render json: { id: org.id }, status: :created

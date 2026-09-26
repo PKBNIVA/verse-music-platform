@@ -36,11 +36,11 @@ class MessagingNotificationsTest < ActionDispatch::IntegrationTest
 
     [nil, "", "   \n\t "].each do |body|
       post path, params: { body: }, headers: auth(employer), as: :json
-      assert_response :unprocessable_entity
+      assert_response :unprocessable_content
       assert_equal "MESSAGE_EMPTY", response.parsed_body["code"]
     end
     post path, params: { body: "x" * (MessagesController::MAX_LENGTH + 1) }, headers: auth(employer), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "MESSAGE_TOO_LONG", response.parsed_body["code"]
     assert_equal 0, conversation.messages.count
 
