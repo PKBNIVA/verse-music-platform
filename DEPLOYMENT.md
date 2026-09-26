@@ -70,7 +70,7 @@ of each controlled test before declaring an integration operational.
 | --- | --- | --- |
 | Razorpay | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `RAZORPAY_PLAN_PRO`, `RAZORPAY_PLAN_STUDIO` | Configure live plans and the webhook URL `https://verse-music-platform-production.up.railway.app/api/billing/webhook/razorpay`. Complete a controlled checkout, authenticated webhook, cancellation, and reconciliation check. Keep test and live credentials separate. |
 | Brevo | `BREVO_API_KEY`, `BREVO_SENDER_EMAIL`, `BREVO_SENDER_NAME` | Verify the sending domain and sender in Brevo, then deliver a verification and reset email to controlled addresses. Check provider acceptance, inbox receipt, bounce status, and the resulting links. |
-| S3-compatible storage | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT_URL_S3`, `AWS_PUBLIC_BASE_URL` | Upload, read, and delete a controlled image and audio file through the browser. Verify object durability, access policy, MIME/size rejection, CORS, and cleanup. |
+| S3-compatible storage | `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_BUCKET`, `AWS_ENDPOINT_URL_S3`, `AWS_PUBLIC_BASE_URL`, optional `AWS_UPLOAD_METHOD` (see "Object storage — Cloudflare R2") | Upload, read, and delete a controlled image and audio file through the browser. Verify object durability, access policy, MIME/size rejection, CORS, and cleanup. |
 
 Keep credentials in Railway's secret settings, not in the repository or frontend
 `VITE_` variables. The public Razorpay Key ID is returned by the API only for checkout;
@@ -80,6 +80,79 @@ are absent, report the corresponding flow as disabled or unverified.
 
 When Razorpay is not configured, production payment creation must fail closed; it must
 never silently use mock checkout.
+
+## Object storage — Cloudflare R2
+
+Without `AWS_BUCKET`, production uploads return 503 unless `PERSISTENT_UPLOADS=true` with a
+Railway volume, which pins the API to one replica. R2 removes that limit.
+
+How uploads work: `POST /api/uploads/presign` records a pending `uploads` row and returns
+browser upload instructions; the browser sends the file straight to the bucket; then
+`POST /api/uploads/:id/complete` reads the object's size and first bytes and deletes it if
+either does not match. Work samples accept only external HTTPS links or the user's own
+completed uploads. Deleting a work sample deletes its file; the daily `upload_sweep` cron
+(04:43 UTC) deletes pending uploads older than 24 h, completed uploads no work sample uses,
+uploads whose owner was deleted, and untracked `uploads/` objects that no work sample links to.
+
+Upload method: `AWS_UPLOAD_METHOD=post` uses a presigned POST policy (exact size, exact
+Content-Type, fixed key). R2 does not document POST-policy uploads, so an
+`*.r2.cloudflarestorage.com` endpoint defaults to `put`: a presigned PUT whose Content-Type
+and Content-Length are signed. Both are re-verified by `complete`. Only set `post` for R2
+after a controlled upload succeeds with it.
+
+Checklist:
+
+1. **Bucket.** Cloudflare dashboard → R2 → Create bucket, e.g. `verse-uploads` (location:
+   automatic or closest to users; default storage class). Keep the bucket private to the S3
+   API; public reads go through step 3.
+2. **API token.** R2 → Manage API tokens → Create API token: permission *Object Read & Write*,
+   scoped to `verse-uploads` only, no expiry or a tracked expiry. Record the Access Key ID,
+   Secret Access Key and the account's S3 endpoint
+   `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`.
+3. **Public reads.** Bucket → Settings → Custom Domains → connect e.g. `media.<your-domain>`
+   (the zone must be on Cloudflare). For a trial only, enable the `r2.dev` subdomain instead;
+   it is rate-limited and not meant for production.
+4. **CORS.** Bucket → Settings → CORS policy:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://verse-music-platform.vercel.app"],
+       "AllowedMethods": ["PUT", "POST", "GET", "HEAD"],
+       "AllowedHeaders": ["content-type"],
+       "ExposeHeaders": ["ETag"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   Add any other production frontend origin (custom domain) to `AllowedOrigins`; never `*`.
+5. **Railway variables** (API service, secret settings):
+
+   | Variable | Value |
+   | --- | --- |
+   | `AWS_ACCESS_KEY_ID` | R2 token Access Key ID |
+   | `AWS_SECRET_ACCESS_KEY` | R2 token Secret Access Key |
+   | `AWS_REGION` | `auto` |
+   | `AWS_BUCKET` | `verse-uploads` |
+   | `AWS_ENDPOINT_URL_S3` | `https://<ACCOUNT_ID>.r2.cloudflarestorage.com` |
+   | `AWS_PUBLIC_BASE_URL` | `https://media.<your-domain>` (or the `https://pub-….r2.dev` URL) |
+   | `AWS_UPLOAD_METHOD` | leave unset (→ `put` on R2) |
+
+   `AWS_PUBLIC_BASE_URL` is mandatory with a custom endpoint; without it uploads return 503
+   `STORAGE_MISCONFIGURED`. Nothing storage-related goes into Vercel `VITE_` variables.
+6. **CSP.** `vercel.json` already allows `connect-src https://*.r2.cloudflarestorage.com`
+   (browser upload) and `img-src`/`media-src https:` (playback). PDFs open in a new tab, so no
+   `frame-src` change is needed.
+7. **Verify.** `GET /api/admin/health` → `checks.storage.ok: true`, `uploadMethod: "put"` and
+   no `problems` (codes such as `missing_credentials`, `missing_public_base_url`,
+   `insecure_endpoint`; values are never echoed). The admin tester's "Upload storage" check
+   shows the same. Then, in the browser, upload an image, an MP3 and a PDF on
+   `/jobseeker/portfolio`, play them, confirm a renamed `.txt → .png` is rejected, delete each
+   sample and confirm the object is gone from the bucket.
+8. **After migrating.** Remove `PERSISTENT_UPLOADS` and the volume only after existing
+   `/rails/active_storage/...` work samples have been re-uploaded or accepted as lost; the
+   Disk files live only on that volume.
 
 ## Release gate
 
