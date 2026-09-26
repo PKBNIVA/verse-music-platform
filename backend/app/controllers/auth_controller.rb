@@ -22,7 +22,7 @@ class AuthController < ApplicationController
     # Shared campus, office and mobile-carrier IPs sign up many real users; keep bulk abuse bounded.
     return unless throttle!("register", limit: 60, period: 1.hour)
     role = params[:role].to_s
-    return render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE") unless %w[jobseeker employer].include?(role)
+    return render_error("Choose either a jobseeker or employer account.", :unprocessable_content, "INVALID_ROLE") unless %w[jobseeker employer].include?(role)
 
     user = User.create!(name: params[:name], email: params[:email], password: params[:password], role:, status: :active)
     user.create_profile!
@@ -61,7 +61,7 @@ class AuthController < ApplicationController
   # unusable placeholder row so the work done per request is the same.
   def otp_request
     email = normalized_email
-    return render_error("Enter a valid email address.", :unprocessable_entity, "INVALID_EMAIL") unless email.match?(URI::MailTo::EMAIL_REGEXP) && email.length <= 254
+    return render_error("Enter a valid email address.", :unprocessable_content, "INVALID_EMAIL") unless email.match?(URI::MailTo::EMAIL_REGEXP) && email.length <= 254
     sign_up = otp_sign_up_params
     return if performed?
 
@@ -196,11 +196,11 @@ class AuthController < ApplicationController
     name = params[:name].to_s.strip
     return nil if role.blank? && name.blank?
     unless SignInCode::SIGN_UP_ROLES.include?(role)
-      render_error("Choose either a jobseeker or employer account.", :unprocessable_entity, "INVALID_ROLE")
+      render_error("Choose either a jobseeker or employer account.", :unprocessable_content, "INVALID_ROLE")
       return nil
     end
     unless name.length.between?(2, 120)
-      render_error("Enter a name between 2 and 120 characters.", :unprocessable_entity, "INVALID_NAME")
+      render_error("Enter a name between 2 and 120 characters.", :unprocessable_content, "INVALID_NAME")
       return nil
     end
     { name:, role: }

@@ -33,7 +33,7 @@ class JobseekerHardeningTest < ActionDispatch::IntegrationTest
       [{ currency: "XYZ" }, "Currency must be one of INR, USD, EUR, GBP"]
     ].each do |payload, message|
       put "/api/profile", params: payload, headers: auth(@seeker), as: :json
-      assert_response :unprocessable_entity, payload.inspect
+      assert_response :unprocessable_content, payload.inspect
       assert_equal message, response.parsed_body["error"]
     end
 
@@ -54,7 +54,7 @@ class JobseekerHardeningTest < ActionDispatch::IntegrationTest
 
   test "job alerts explain invalid frequency and default a blank name" do
     post "/api/job-alerts", params: { name: "x", frequency: "hourly" }, headers: auth(@seeker), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "Frequency must be daily, weekly, or saved", response.parsed_body["error"]
 
     post "/api/job-alerts", params: { name: "   " }, headers: auth(@seeker), as: :json
@@ -66,9 +66,9 @@ class JobseekerHardeningTest < ActionDispatch::IntegrationTest
 
   test "apply validates the note and keeps only text screening answers" do
     post "/api/jobs/#{@job.id}/apply", params: { coverLetter: { a: 1 } }, headers: auth(@seeker), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/jobs/#{@job.id}/apply", params: { coverLetter: "x" * 5_001 }, headers: auth(@seeker), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/jobs/#{@job.id}/apply", params: { coverLetter: "Fits my jazz work", screeningAnswers: ["Q :: A", { bad: 1 }] }, headers: auth(@seeker), as: :json
     assert_response :created
@@ -87,11 +87,11 @@ class JobseekerHardeningTest < ActionDispatch::IntegrationTest
 
   test "reviews reject a non-string employerId and rate-check input" do
     get "/api/reviews?employerId[x]=y", headers: auth(@seeker)
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "INVALID_EMPLOYER", response.parsed_body["code"]
 
     post "/api/reviews", params: { employerId: [@employer.id], rating: 5, body: "Great" }, headers: auth(@seeker), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "INVALID_EMPLOYER", response.parsed_body["code"]
 
     get "/api/reviews?employerId=#{@employer.id}", headers: auth(@seeker)

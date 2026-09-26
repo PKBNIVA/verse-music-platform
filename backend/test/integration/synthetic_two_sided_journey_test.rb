@@ -93,7 +93,7 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
 
     conversation = Conversation.find_by!(candidate:)
     post "/api/conversations/#{conversation.id}/messages", params: { body: "   " }, as: :json, headers: auth(candidate_token)
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
   end
 
   private

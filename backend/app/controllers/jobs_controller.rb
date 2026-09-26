@@ -46,9 +46,9 @@ class JobsController < ApplicationController
     attributes = job_params(defaults: true)
     flags = moderation_flags_for(attributes)
     job = current_user.jobs.build(attributes.merge(status: draft ? "draft" : "pending", company: params[:company].presence || current_user.profile&.company_name || current_user.name, moderation_note: flags.join("; ").presence))
-    return render_error(job.errors.full_messages.to_sentence, :unprocessable_entity) unless job.valid?
+    return render_error(job.errors.full_messages.to_sentence, :unprocessable_content) unless job.valid?
     if !draft && (error = submission_error(job))
-      return render_error(error, :unprocessable_entity)
+      return render_error(error, :unprocessable_content)
     end
     Job.transaction do
       if !draft && (limit_error = active_post_limit_error)
@@ -69,8 +69,8 @@ class JobsController < ApplicationController
     return render_error("The application deadline has passed.", :conflict) if job.application_deadline&.past?
     return render_error("This opportunity requires at least one portfolio item.", :conflict) if job.portfolio_required? && current_user.portfolio_items.none?
     cover_letter = params[:coverLetter]
-    return render_error("The note to the employer must be text.", :unprocessable_entity) unless cover_letter.nil? || cover_letter.is_a?(String)
-    return render_error("The note to the employer must be 5,000 characters or fewer.", :unprocessable_entity) if cover_letter.to_s.length > 5_000
+    return render_error("The note to the employer must be text.", :unprocessable_content) unless cover_letter.nil? || cover_letter.is_a?(String)
+    return render_error("The note to the employer must be 5,000 characters or fewer.", :unprocessable_content) if cover_letter.to_s.length > 5_000
     answers = params[:screeningAnswers]
     answers = Array(answers.is_a?(Array) ? answers : nil).select { _1.is_a?(String) }.map { _1.first(5_000) }
     application = job.applications.create!(candidate: current_user, cover_letter: cover_letter.presence, screening_answers: answers)

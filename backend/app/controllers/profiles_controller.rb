@@ -3,10 +3,10 @@ class ProfilesController < ApplicationController
     return unless authenticate!("jobseeker", "employer")
     attributes = profile_params
     if (message = invalid_number_message(attributes))
-      return render_error(message, :unprocessable_entity)
+      return render_error(message, :unprocessable_content)
     end
     if attributes["currency"].present? && !CURRENCIES.include?(attributes["currency"])
-      return render_error("Currency must be one of #{CURRENCIES.join(', ')}", :unprocessable_entity)
+      return render_error("Currency must be one of #{CURRENCIES.join(', ')}", :unprocessable_content)
     end
     profile = current_user.profile || current_user.build_profile
     profile.assign_attributes(attributes)

@@ -96,7 +96,7 @@ class AuthorizationIntegrityTest < ActionDispatch::IntegrationTest
       assert_response :not_found
     end
     post "/api/acts/#{act.id}/members", params: { roleName: "Drums" }, headers: auth(owner), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal 0, act.act_members.count
 
     post "/api/acts/#{act.id}/members", params: { displayName: "Session Drummer", roleName: "Drums", instrument: "Drums" }, headers: auth(owner), as: :json

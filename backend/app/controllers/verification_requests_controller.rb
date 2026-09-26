@@ -8,7 +8,7 @@ class VerificationRequestsController < ApplicationController
       return render_error("Verification kind must match your account type.", :bad_request, "INVALID_VERIFICATION_KIND")
     end
     invalid = FIELD_LIMITS.find { |key, limit| !params[key].nil? && (!params[key].is_a?(String) || params[key].length > limit) }&.first
-    return render_error("#{invalid} must be text of at most #{FIELD_LIMITS[invalid]} characters.", :unprocessable_entity, "INVALID_VERIFICATION_REQUEST") if invalid
+    return render_error("#{invalid} must be text of at most #{FIELD_LIMITS[invalid]} characters.", :unprocessable_content, "INVALID_VERIFICATION_REQUEST") if invalid
 
     request = VerificationRequest.create!(user: current_user, kind: params[:kind], evidence_url: params[:evidenceUrl].presence, note: params[:note])
     render json: { id: request.id }, status: :created

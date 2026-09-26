@@ -271,7 +271,7 @@ class RazorpaySimulatorFlowsTest < ActionDispatch::IntegrationTest
 
     handler = result.fetch("response")
     confirm(payment, handler.merge("razorpay_signature" => "f" * 64))
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     confirm(payment, handler)
     assert_response :success
     assert_equal "paid", payment.reload.status

@@ -70,7 +70,7 @@ module Dev
     end
 
     rescue_from RazorpaySimulator::Error do |error|
-      render json: { error: error.message, code: "SIMULATOR_REJECTED", provider: error.body }, status: :unprocessable_entity
+      render json: { error: error.message, code: "SIMULATOR_REJECTED", provider: error.body }, status: :unprocessable_content
     end
   end
 end

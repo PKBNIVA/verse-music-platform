@@ -7,10 +7,10 @@ class CrewPlansController < ApplicationController
     return unless require_scalar_params!(:title, :eventType, :city, :eventDate, :audienceSize, :budget, :currency, :notes)
     needs = string_list_param(:needs)
     genres = string_list_param(:genres)
-    return render_error("needs and genres must be lists of text values.", :unprocessable_entity, "INVALID_PARAMETER") if needs.nil? || genres.nil?
+    return render_error("needs and genres must be lists of text values.", :unprocessable_content, "INVALID_PARAMETER") if needs.nil? || genres.nil?
     event_date = params[:eventDate].presence
     if event_date && (Date.iso8601(event_date.to_s) rescue nil).nil?
-      return render_error("Event date must be a valid date.", :unprocessable_entity)
+      return render_error("Event date must be a valid date.", :unprocessable_content)
     end
     plan = nil
     CrewPlan.transaction do

@@ -3,7 +3,7 @@ class JobAlertsController < ApplicationController
 
   before_action -> { authenticate!("jobseeker") }
   # Surface the reason to the client; a raised BadRequest rendered as a bare "Bad Request" in production.
-  rescue_from InvalidAlert, with: ->(error) { render_error(error.message, :unprocessable_entity, "INVALID_ALERT") }
+  rescue_from InvalidAlert, with: ->(error) { render_error(error.message, :unprocessable_content, "INVALID_ALERT") }
 
   def index = render(json: { alerts: current_user.job_alerts.order(created_at: :desc).limit(200) })
 

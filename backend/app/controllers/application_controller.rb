@@ -2,11 +2,11 @@ class ApplicationController < ActionController::API
   around_action :log_request
   before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
-  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity, "VALIDATION_FAILED") }
+  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_content, "VALIDATION_FAILED") }
   # Client mistakes that would otherwise surface as 500s (or as framework error pages without
   # the {error, code} shape). Later declarations take precedence over earlier ones.
   rescue_from ArgumentError, with: :render_invalid_argument
-  rescue_from ActiveModel::RangeError, with: -> { render_error("A number is outside the allowed range.", :unprocessable_entity, "OUT_OF_RANGE") }
+  rescue_from ActiveModel::RangeError, with: -> { render_error("A number is outside the allowed range.", :unprocessable_content, "OUT_OF_RANGE") }
   rescue_from ActiveRecord::NotNullViolation, with: :render_missing_column
   rescue_from ActiveRecord::RecordNotUnique, with: -> { render_error("This record already exists.", :conflict, "CONFLICT") }
   rescue_from ActionController::BadRequest, with: ->(error) { render_error(error.message.presence || "Bad request", :bad_request, "BAD_REQUEST") }
@@ -83,14 +83,14 @@ class ApplicationController < ActionController::API
   def render_invalid_argument(error)
     raise error unless error.message.match?(INVALID_ARGUMENT_PATTERN)
     message = error.message.include?("null byte") ? "Text may not contain NUL characters." : error.message.delete("'").capitalize
-    render_error(message, :unprocessable_entity, "INVALID_VALUE")
+    render_error(message, :unprocessable_content, "INVALID_VALUE")
   end
 
   # A NOT NULL column reached the database without a value: a required field was omitted.
   def render_missing_column(error)
     column = error.cause.respond_to?(:result) ? error.cause.result&.error_field(PG::Result::PG_DIAG_COLUMN_NAME) : nil
     field = column.to_s.camelize(:lower).presence
-    render_error(field ? "#{field} is required." : "A required field is missing.", :unprocessable_entity, "MISSING_FIELD")
+    render_error(field ? "#{field} is required." : "A required field is missing.", :unprocessable_content, "MISSING_FIELD")
   end
 
   def digest(value)

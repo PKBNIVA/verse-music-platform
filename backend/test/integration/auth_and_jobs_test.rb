@@ -9,7 +9,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
       role: "admin"
     }, as: :json
 
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "INVALID_ROLE", response.parsed_body["code"]
     assert_not User.exists?(email: "unexpected-admin@example.com")
   end
@@ -248,7 +248,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
       url: "javascript:alert(document.domain)"
     }, headers: auth(token), as: :json
 
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/HTTP or HTTPS URL/, response.parsed_body.fetch("error"))
 
     post "/api/verification-requests", params: {
@@ -256,7 +256,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
       evidenceUrl: "data:text/html,<script>alert(1)</script>"
     }, headers: auth(token), as: :json
 
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/HTTP or HTTPS URL/, response.parsed_body.fetch("error"))
   end
 
@@ -443,7 +443,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal "Shortlisted", application.reload.status
 
     patch "/api/employer/applications/#{application.id}", params: { status: "Interview Scheduled" }, headers: auth(token), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     patch "/api/employer/applications/#{application.id}", params: { status: "Interview Scheduled", interviewDate: 2.days.from_now }, headers: auth(token), as: :json
     assert_response :success
 
@@ -481,7 +481,7 @@ class AuthAndJobsTest < ActionDispatch::IntegrationTest
     assert_equal notification_count, Notification.where(user: candidate, kind: "application_status").count
 
     patch "/api/employer/applications/#{application.id}", params: { recruiterRating: 6 }, headers: auth(token), as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal 5, application.reload.recruiter_rating
   end
 

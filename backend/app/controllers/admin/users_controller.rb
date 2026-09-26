@@ -65,7 +65,7 @@ module Admin
       # Whole numbers are clamped to 1..366; anything else ("abc", 1.5, arrays) is rejected rather than read as 0.
       return render_error("Days must be a whole number between 1 and 366.", :bad_request) unless days.is_a?(Integer) || days.to_s.match?(/\A-?\d+\z/)
       user = User.find(params[:id])
-      return render_error("Plans can only be granted to professional or organization accounts.", :unprocessable_entity) if user.admin?
+      return render_error("Plans can only be granted to professional or organization accounts.", :unprocessable_content) if user.admin?
       Subscription.where(user:, status: %w[active trialing pending]).update_all(status: "cancelled", updated_at: Time.current)
       subscription = Subscription.create!(user:, plan_code: params[:planCode], provider: "internal", status: "active", current_period_start: Time.current, current_period_end: days.to_i.clamp(1, 366).days.from_now)
       audit!("admin.plan.grant", subscription, planCode: subscription.plan_code)

@@ -36,11 +36,11 @@ class ConversationsController < ApplicationController
     candidate = resolve_candidate
     employer = resolve_employer(job)
     return render_error("You cannot create this conversation.", :forbidden) unless candidate && employer
-    return render_error("You cannot message yourself.", :unprocessable_entity) if candidate.id == employer.id
+    return render_error("You cannot message yourself.", :unprocessable_content) if candidate.id == employer.id
     return render_error("You cannot create this conversation.", :forbidden) unless [candidate.id, employer.id].include?(current_user.id)
 
     if job
-      return render_error("Conversation does not match this opportunity.", :unprocessable_entity) unless employer.id == job.employer_id
+      return render_error("Conversation does not match this opportunity.", :unprocessable_content) unless employer.id == job.employer_id
       if current_user.id == employer.id && !Application.exists?(job:, candidate:)
         return render_error("You can message candidates who applied to this opportunity.", :forbidden)
       end
@@ -63,7 +63,7 @@ class ConversationsController < ApplicationController
     candidate = User.active.find_by(id: booking.act.owner_id)
     employer = User.active.find_by(id: booking.requester_id)
     return render_error("You cannot create this conversation.", :forbidden) unless candidate && employer
-    return render_error("You cannot message yourself.", :unprocessable_entity) if candidate.id == employer.id
+    return render_error("You cannot message yourself.", :unprocessable_content) if candidate.id == employer.id
 
     open_conversation(candidate:, employer:, job: nil)
   end

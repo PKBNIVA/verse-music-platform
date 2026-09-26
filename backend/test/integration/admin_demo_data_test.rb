@@ -71,15 +71,15 @@ class AdminDemoDataTest < ActionDispatch::IntegrationTest
 
   test "rejects unknown sizes, the 300 user cap and non-demo batches" do
     post "/api/admin/demo-data", params: { size: "huge" }, as: :json, headers: auth(@admin)
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     SyntheticQa::BatchSeeder.call(batch: "demo-20260101-0000", jobseekers: 100, employers: 1)
     post "/api/admin/demo-data", params: { size: "large" }, as: :json, headers: auth(@admin)
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_equal "DEMO_CAP_EXCEEDED", response.parsed_body.fetch("code")
 
     delete "/api/admin/demo-data/qa-hidden-batch", headers: auth(@admin)
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     delete "/api/admin/demo-data/demo-19990101-0000", headers: auth(@admin)
     assert_response :not_found
     assert_no_enqueued_jobs

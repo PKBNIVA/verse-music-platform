@@ -3,7 +3,7 @@ require "test_helper"
 class RequestSizeLimitTest < ActionDispatch::IntegrationTest
   test "JSON bodies over 1 MB are rejected with 413 before reaching a controller" do
     post "/api/auth/login", params: { email: "someone@example.com", password: "x" * (1.megabyte + 10) }, as: :json
-    assert_response :payload_too_large
+    assert_response :content_too_large
     assert_equal "PAYLOAD_TOO_LARGE", response.parsed_body["code"]
     assert_equal "application/json", response.media_type
   end

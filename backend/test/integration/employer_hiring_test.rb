@@ -21,7 +21,7 @@ class EmployerHiringTest < ActionDispatch::IntegrationTest
     assert_equal %w[pending closed], listed.fetch("allowedNextStatuses")
 
     patch "/api/employer/jobs/#{job_id}", params: { status: "pending" }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/Location can't be blank/, response.parsed_body.fetch("error"))
     assert_equal "draft", Job.find(job_id).status
 
@@ -103,21 +103,21 @@ class EmployerHiringTest < ActionDispatch::IntegrationTest
 
   test "job fields are validated instead of raising" do
     post "/api/jobs", params: complete_job(compensationMin: 500, compensationMax: 100), headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/at least the minimum/, response.parsed_body.fetch("error"))
 
     post "/api/jobs", params: complete_job(slots: 0), headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/jobs", params: complete_job(compensationMin: 99_999_999_999), headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/jobs", params: complete_job(applicationDeadline: "2020-01-01"), headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     assert_match(/deadline/, response.parsed_body.fetch("error"))
 
     post "/api/jobs", params: complete_job(screeningQuestions: Array.new(9) { "Question #{_1}?" }), headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/jobs", params: complete_job(compensationMin: 1000).except(:compensationMax), headers: auth, as: :json
     assert_response :created
@@ -126,13 +126,13 @@ class EmployerHiringTest < ActionDispatch::IntegrationTest
 
   test "crew plans validate input and cover every need" do
     post "/api/crew-plans", params: {}, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/crew-plans", params: { title: "Gala", city: "Goa", eventDate: "not a date" }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/crew-plans", params: { title: "Gala", city: "Goa", needs: { a: 1 } }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/crew-plans", params: { title: "Gala", city: "Goa", budget: 99_999_999_999 }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/crew-plans", params: { title: "Gala", city: "Goa", needs: "video", eventDate: "2027-01-10" }, headers: auth, as: :json
     assert_response :created
@@ -146,9 +146,9 @@ class EmployerHiringTest < ActionDispatch::IntegrationTest
 
   test "talent folders reject blank names, count members and delete with members" do
     post "/api/talent-folders", params: { name: "  " }, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
     post "/api/talent-folders", params: {}, headers: auth, as: :json
-    assert_response :unprocessable_entity
+    assert_response :unprocessable_content
 
     post "/api/talent-folders", params: { name: "Tour band" }, headers: auth, as: :json
     assert_response :created

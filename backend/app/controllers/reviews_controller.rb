@@ -33,7 +33,7 @@ class ReviewsController < ApplicationController
   private
 
   def render_invalid_employer
-    render_error("employerId must be a single employer id.", :unprocessable_entity, "INVALID_EMPLOYER")
+    render_error("employerId must be a single employer id.", :unprocessable_content, "INVALID_EMPLOYER")
   end
 
   # Shared by the form response and create authorization to prevent contract drift.
