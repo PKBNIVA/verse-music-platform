@@ -40,6 +40,8 @@ class ApplicationController < ActionController::API
     token = request.authorization.to_s.match(/^Bearer\s+(.+)$/i)&.captures&.first
     session = Session.active.find_by(token_digest: digest(token)) if token.present?
     @current_user = session&.user
+    ErrorReporter.set_user(@current_user)
+    @current_user
   end
 
   def authenticate!(*roles)
@@ -59,7 +61,19 @@ class ApplicationController < ActionController::API
   end
 
   def render_error(message, status, code = nil)
+    report_handled_server_error(status, code)
     render json: { error: message, code: code }.compact, status: status
+  end
+
+  # A rescue (inline or rescue_from) that still answers 5xx is an operational failure the
+  # owner must see; 4xx answers are expected client errors and are never reported.
+  # `$!` is the exception being handled when this runs inside a rescue, and nil otherwise.
+  def report_handled_server_error(status, code)
+    error = $!
+    return unless error && Rack::Utils.status_code(status) >= 500
+
+    ErrorReporter.capture(error, tags: { source: "handled_5xx", status: Rack::Utils.status_code(status).to_s, errorCode: code }.compact,
+      requestId: request.request_id, path: request.path)
   end
 
   # Enum assignment ("'x' is not a valid status") and PostgreSQL's refusal of NUL bytes are

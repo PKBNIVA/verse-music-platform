@@ -12,6 +12,8 @@ gem "aws-sdk-s3", require: false
 gem "faraday", "~> 2.12"
 gem "redis", "~> 5.2"
 gem "good_job", "~> 4.13"
+gem "sentry-ruby", "~> 7.0"
+gem "sentry-rails", "~> 7.0"
 gem "bootsnap", require: false
 
 group :development, :test do
