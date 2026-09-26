@@ -83,9 +83,9 @@ class ApiErrorShapeTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "controller-raised BadRequest (job alert frequency) is 400 with its message and no trace" do
+  test "invalid job alert frequency is 422 INVALID_ALERT with its message and no trace" do
     post "/api/job-alerts", params: { name: "x", frequency: "hourly" }, headers: @headers, as: :json
-    assert_error(400, "BAD_REQUEST")
+    assert_error(422, "INVALID_ALERT")
     assert_equal "Frequency must be daily, weekly, or saved", response.parsed_body["error"]
   end
 
