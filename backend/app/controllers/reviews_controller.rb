@@ -10,10 +10,22 @@ class ReviewsController < ApplicationController
   def create
     return unless authenticate!("jobseeker")
     employer = User.employer.active.find(params[:employerId])
-    worked_together = eligible_employers.exists?(id: employer.id)
-    return render_error("You can review an employer only after a completed hire.", :forbidden, "REVIEW_NOT_ELIGIBLE") unless worked_together
-    review = Review.create!(author: current_user, employer:, rating: params[:rating], title: params[:title], body: params[:body], status: "pending")
-    render json: { id: review.id }, status: :created
+    outcome = Review.transaction do
+      # reviews has no unique (author_id, employer_id) index, so concurrent submissions are
+      # serialized per pair with a transaction-scoped advisory lock instead.
+      lock_key = Review.connection.quote("review:#{current_user.id}:#{employer.id}")
+      Review.connection.execute("SELECT pg_advisory_xact_lock(hashtext(#{lock_key}))")
+      if Review.exists?(author_id: current_user.id, employer_id: employer.id)
+        :duplicate
+      elsif !eligible_employers.exists?(id: employer.id)
+        :ineligible
+      else
+        Review.create!(author: current_user, employer:, rating: params[:rating], title: params[:title], body: params[:body], status: "pending")
+      end
+    end
+    return render_error("You have already reviewed this employer.", :conflict, "REVIEW_EXISTS") if outcome == :duplicate
+    return render_error("You can review an employer only after a completed hire.", :forbidden, "REVIEW_NOT_ELIGIBLE") if outcome == :ineligible
+    render json: { id: outcome.id }, status: :created
   end
 
   private

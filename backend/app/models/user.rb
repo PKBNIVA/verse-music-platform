@@ -34,6 +34,9 @@ class User < ApplicationRecord
   normalizes :email, with: ->(value) { value.strip.downcase }
 
   scope :synthetic, ->(batch = nil) { batch.present? ? where(synthetic_batch: batch) : where.not(synthetic_batch: nil) }
+  scope :organic, -> { where(synthetic_batch: nil) }
+  # Professionals whose profiles may be shown to other users (talent pages, folders).
+  scope :discoverable_talent, -> { jobseeker.active.where(profile_complete: true) }
 
   def profileComplete = profile_complete
   def emailVerified = email_verified

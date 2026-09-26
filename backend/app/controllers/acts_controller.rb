@@ -1,4 +1,7 @@
 class ActsController < ApplicationController
+  # Only "confirmed" exists today: public lineups show confirmed members and no flow sets another status.
+  MEMBER_STATUSES = %w[confirmed].freeze
+
   def public_index = render(json: { acts: filtered_scope.map(&:public_json) })
   def public_show = render(json: { act: Act.includes(:act_members, owner: :profile).where(status: "active").find(params[:id]).public_json })
 
@@ -31,7 +34,16 @@ class ActsController < ApplicationController
   def add_member
     return unless authenticate!("jobseeker", "employer")
     act = current_user.owned_acts.find(params[:id])
-    member = act.act_members.create!(display_name: params[:displayName], role_name: params[:roleName], instrument: params[:instrument], member_status: params[:memberStatus].presence || "confirmed", is_leader: false, user_id: params[:userId])
+    status = params[:memberStatus].presence || "confirmed"
+    return render_error("Invalid member status.", :bad_request, "INVALID_MEMBER_STATUS") unless MEMBER_STATUSES.include?(status)
+    linked_user = nil
+    if params[:userId].present?
+      # Only active professionals can be linked to a lineup; anything else is indistinguishable from unknown.
+      linked_user = User.jobseeker.active.find_by(id: params[:userId].to_s)
+      return render_error("Professional not found.", :not_found) unless linked_user
+      return render_error("That professional is already in this lineup.", :conflict) if act.act_members.exists?(user_id: linked_user.id)
+    end
+    member = act.act_members.create!(display_name: params[:displayName], role_name: params[:roleName], instrument: params[:instrument], member_status: status, is_leader: false, user: linked_user)
     render json: { id: member.id }, status: :created
   end
 

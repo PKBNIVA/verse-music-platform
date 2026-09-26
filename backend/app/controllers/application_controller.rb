@@ -63,7 +63,7 @@ class ApplicationController < ActionController::API
   end
 
   def public_profile(user)
-    public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone")
+    public_user(user).except("email", "status", "profileComplete", "emailVerified", "last_login_at", "phone", "synthetic_batch")
   end
 
   def public_employer(user)

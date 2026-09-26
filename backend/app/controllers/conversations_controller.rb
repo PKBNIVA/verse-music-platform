@@ -1,10 +1,20 @@
 class ConversationsController < ApplicationController
+  include UserRateLimit
+
+  CREATE_LIMIT_PER_HOUR = 20
+  # Latest message body per conversation, served by the messages(conversation_id, created_at) index.
+  LAST_MESSAGE_SQL = "(SELECT messages.body FROM messages WHERE messages.conversation_id = conversations.id " \
+    "ORDER BY messages.created_at DESC LIMIT 1) AS last_message_body".freeze
+
   before_action -> { authenticate! }
   def index
-    rows = Conversation.where("candidate_id = ? OR employer_id = ?", current_user.id, current_user.id).includes(:candidate, :employer, :job, :messages).order(updated_at: :desc)
-    render json: { conversations: rows.map { |c| { id: c.id, candidateName: c.candidate.name, employerName: c.employer.name, jobTitle: c.job&.title, lastMessage: c.messages.max_by(&:created_at)&.body } } }
+    rows = Conversation.where("candidate_id = ? OR employer_id = ?", current_user.id, current_user.id)
+      .select(Conversation.arel_table[Arel.star], LAST_MESSAGE_SQL)
+      .includes(:candidate, :employer, :job).order(updated_at: :desc)
+    render json: { conversations: rows.map { |c| { id: c.id, candidateName: c.candidate.name, employerName: c.employer.name, jobTitle: c.job&.title, lastMessage: c[:last_message_body] } } }
   end
   def create
+    return unless within_user_rate_limit?("conversation", limit: CREATE_LIMIT_PER_HOUR, period: 1.hour)
     job = Job.find_by(id: params[:jobId])
     candidate = resolve_candidate
     employer = resolve_employer(job)
@@ -22,7 +32,11 @@ class ConversationsController < ApplicationController
       end
     end
 
-    conversation = Conversation.find_or_create_by!(candidate:, employer:, job:)
+    conversation = begin
+      Conversation.find_or_create_by!(candidate:, employer:, job:)
+    rescue ActiveRecord::RecordNotUnique
+      Conversation.find_by!(candidate:, employer:, job:)
+    end
     render json: { id: conversation.id, conversation: { id: conversation.id } }, status: :created
   end
 

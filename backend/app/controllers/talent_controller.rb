@@ -1,6 +1,6 @@
 class TalentController < ApplicationController
   def public_index
-    scope = public_scope
+    scope = listing_scope
     scope = filter(scope)
     render json: { talent: scope.limit(100).map { public_profile(_1) } }
   end
@@ -13,7 +13,7 @@ class TalentController < ApplicationController
   def index
     return unless authenticate!("jobseeker", "employer")
     shortlisted = TalentShortlist.where(employer: current_user).pluck(:candidate_id).to_set
-    render json: { candidates: filter(public_scope).limit(100).map { public_profile(_1).merge(shortlisted: shortlisted.include?(_1.id)) } }
+    render json: { candidates: filter(listing_scope).limit(100).map { public_profile(_1).merge(shortlisted: shortlisted.include?(_1.id)) } }
   end
 
   def show
@@ -69,7 +69,10 @@ class TalentController < ApplicationController
 
   private
 
-  def public_scope = User.jobseeker.active.where(profile_complete: true).includes(:profile, :portfolio_items)
+  def public_scope = User.discoverable_talent.includes(:profile, :portfolio_items)
+
+  # Browse/search listings hide synthetic QA accounts from real users; synthetic viewers still see them.
+  def listing_scope = current_user&.synthetic_batch.present? ? public_scope : public_scope.organic
 
   def filter(scope)
     if params[:q].present?

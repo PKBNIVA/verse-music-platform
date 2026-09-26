@@ -45,7 +45,9 @@ class SearchController < ApplicationController
   def talent_results(terms)
     sql = terms.map { "(users.name ILIKE ? OR profiles.headline ILIKE ? OR profiles.bio ILIKE ? OR profiles.skills::text ILIKE ? OR profiles.roles::text ILIKE ?)" }.join(" OR ")
     values = terms.flat_map { Array.new(5, "%#{ActiveRecord::Base.sanitize_sql_like(_1)}%") }
-    User.joins(:profile).where(role: "jobseeker", status: "active", profile_complete: true).where(sql, *values).limit(30).map do |user|
+    scope = User.discoverable_talent.joins(:profile).preload(:profile)
+    scope = scope.organic unless synthetic_viewer?
+    scope.where(sql, *values).limit(30).map do |user|
       profile = user.profile
       { type: "talent", id: user.id, url: "/professionals/#{user.id}", title: user.name,
         subtitle: [profile.headline, profile.location].compact.join(" · "), description: profile.bio,
@@ -66,14 +68,18 @@ class SearchController < ApplicationController
   def sample_results(terms)
     sql = terms.map { "(portfolio_items.title ILIKE ? OR portfolio_items.description ILIKE ? OR portfolio_items.tags::text ILIKE ? OR portfolio_items.genres::text ILIKE ? OR portfolio_items.roles::text ILIKE ?)" }.join(" OR ")
     values = terms.flat_map { Array.new(5, "%#{ActiveRecord::Base.sanitize_sql_like(_1)}%") }
-    PortfolioItem.joins(user: :profile).includes(:user)
+    scope = PortfolioItem.joins(user: :profile).includes(:user)
       .where(visibility: "public", users: { status: "active", profile_complete: true })
-      .where(sql, *values).order(featured: :desc, updated_at: :desc).limit(30).map do |item|
+    scope = scope.where(users: { synthetic_batch: nil }) unless synthetic_viewer?
+    scope.where(sql, *values).order(featured: :desc, updated_at: :desc).limit(30).map do |item|
       { type: "samples", id: item.id, url: "/professionals/#{item.user_id}", title: item.title,
         subtitle: [item.user.name, item.credited_as].compact.join(" · "), description: item.description,
         tags: [item.kind, *item.tags, *item.genres, *item.roles, *item.instruments].compact.uniq }
     end
   end
+
+  # Synthetic QA accounts are hidden from real users but remain discoverable to other synthetic accounts.
+  def synthetic_viewer? = current_user&.synthetic_batch.present?
 
   def search_response(results, terms = [])
     { results:, interpretedAs: terms.map(&:downcase), provider: "postgresql", status: status_payload }

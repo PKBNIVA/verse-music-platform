@@ -5,14 +5,14 @@ class DashboardController < ApplicationController
       applications = current_user.applications
       profile = current_user.profile
       score_fields = [profile&.headline, profile&.bio, profile&.location, profile&.skills&.presence, profile&.genres&.presence, current_user.portfolio_items.exists?]
-      recommended = Job.published.includes(:applications, employer: :profile).order(featured: :desc, created_at: :desc).limit(6).map { |job| job.api_json.merge(fitScore: fit_score(job, profile)) }
+      recommended = Job.published.with_applications_count.includes(employer: :profile).order(featured: :desc, created_at: :desc).limit(6).map { |job| job.api_json.merge(fitScore: fit_score(job, profile)) }
       render json: { applications: applications.count, interviews: applications.where(status: "Interview Scheduled").count,
         saved: current_user.saved_jobs.count, profileScore: (score_fields.count(&:present?) * 100 / score_fields.length), recommendedJobs: recommended }
     else
       scope = Application.joins(:job).where(jobs: { employer_id: current_user.id })
       render json: { jobs: current_user.jobs.count, published: current_user.jobs.where(status: "published").count,
         activeJobs: current_user.jobs.where(status: %w[pending published]).count, applications: scope.count,
-        shortlisted: scope.where(status: "Shortlisted").count, recentJobs: current_user.jobs.includes(:applications, employer: :profile).order(updated_at: :desc).limit(8).map { _1.api_json.merge(applications: _1.applications.size) } }
+        shortlisted: scope.where(status: "Shortlisted").count, recentJobs: current_user.jobs.with_applications_count.includes(employer: :profile).order(updated_at: :desc).limit(8).map { _1.api_json.merge(applications: _1.applications_count) } }
     end
   end
 

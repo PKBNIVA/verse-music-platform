@@ -1,6 +1,6 @@
 class JobsController < ApplicationController
   def index
-    jobs = Job.published.includes(:applications, employer: :profile).order(featured: :desc, created_at: :desc)
+    jobs = Job.published.with_applications_count.includes(employer: :profile).order(featured: :desc, created_at: :desc)
     query = params[:q].to_s.strip
     if query.present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(query)}%"
@@ -19,7 +19,7 @@ class JobsController < ApplicationController
   end
 
   def show
-    job = Job.includes(:applications, employer: :profile).find(params[:id])
+    job = Job.with_applications_count.includes(employer: :profile).find(params[:id])
     unless job.published? || current_user&.admin? || current_user&.id == job.employer_id
       return render_error("Opportunity not found", :not_found)
     end
@@ -57,12 +57,17 @@ class JobsController < ApplicationController
 
   def saved
     return unless authenticate!("jobseeker")
-    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).includes(:applications, employer: :profile).order("saved_jobs.created_at DESC").map(&:api_json) }
+    render json: { jobs: Job.joins(:saved_jobs).where(saved_jobs: { user_id: current_user.id }).with_applications_count.includes(employer: :profile).order("saved_jobs.created_at DESC").map(&:api_json) }
   end
 
   def save
     return unless authenticate!("jobseeker")
-    SavedJob.find_or_create_by!(user: current_user, job: Job.published.find(params[:id]))
+    job = Job.published.find(params[:id])
+    begin
+      SavedJob.find_or_create_by!(user: current_user, job:)
+    rescue ActiveRecord::RecordNotUnique
+      # A concurrent request saved it first (unique index on user_id, job_id): same outcome.
+    end
     render json: { ok: true }, status: :created
   end
 

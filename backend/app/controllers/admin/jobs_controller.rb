@@ -1,6 +1,6 @@
 module Admin
   class JobsController < BaseController
-    def index = render(json: { jobs: Job.includes(:applications, employer: :profile).order(created_at: :desc).limit(500).map(&:api_json) })
+    def index = render(json: { jobs: Job.with_applications_count.includes(employer: :profile).order(created_at: :desc).limit(500).map(&:api_json) })
 
     def update
       return render_error("Invalid opportunity status.", :bad_request) unless %w[pending published rejected closed].include?(params[:status])
