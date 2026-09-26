@@ -38,8 +38,6 @@ class ApiSecurityProbesTest < ActionDispatch::IntegrationTest
       "OWNER: reviews — POST /api/reviews {employerId:[id]} is 500 NoMethodError (reviews_controller.rb:12 find(Array) returns an Array)",
     %r{\A/api/employer/applications\?jobId} =>
       "OWNER: employer-applications — GET /api/employer/applications?jobId[x]=y is 500 (employer/applications_controller.rb:6 where(job_id: Parameters))",
-    %r{\APOST /api/conversations } =>
-      "OWNER: messaging — POST /api/conversations {jobId:{a:1}} is 500 StatementInvalid (conversations_controller.rb:18 find_by(id: Parameters))",
     %r{\APOST /api/crew-plans } =>
       "OWNER: crew-plans — POST /api/crew-plans {needs:\"sound\"} is 500 NoMethodError flat_map for String (crew_plans_controller.rb:7)"
   }.freeze
@@ -331,7 +329,7 @@ class ApiSecurityProbesTest < ActionDispatch::IntegrationTest
 
   # Fails with every unexpected problem; skips when all problems are recorded KNOWN_GAPS.
   def verdict!
-    return if @problems.blank?
+    return pass if @problems.blank?
     known, unknown = @problems.partition { |label, _| KNOWN_GAPS.any? { |pattern, _| label.match?(pattern) } }
     flunk unknown.map { _1.join(" => ") }.join("\n") if unknown.any?
     skip known.map { |label, _| KNOWN_GAPS.find { |pattern, _| label.match?(pattern) }.last }.uniq.join(" | ")

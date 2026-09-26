@@ -1,11 +1,19 @@
 class ConversationsController < ApplicationController
   include UserRateLimit
+  include ScalarParams
 
   CREATE_LIMIT_PER_HOUR = 20
-  PREVIEW_LENGTH = 200
-  # Latest message column per conversation, served by the messages(conversation_id, created_at) index.
-  LATEST_MESSAGE = "(SELECT %s FROM messages WHERE messages.conversation_id = conversations.id " \
-    "ORDER BY messages.created_at DESC LIMIT 1)".freeze
+  PREVIEW_LENGTH = 200 # must match LEFT(messages.body, 200) below
+  # Latest message columns per conversation, served by the messages(conversation_id, created_at) index.
+  # Plain constant SQL (no interpolation) so static analysis can see nothing user-controlled reaches it.
+  LATEST_MESSAGE_SELECTS = [
+    "(SELECT LEFT(messages.body, 200) FROM messages WHERE messages.conversation_id = conversations.id " \
+    "ORDER BY messages.created_at DESC LIMIT 1) AS last_message_body",
+    "(SELECT messages.created_at FROM messages WHERE messages.conversation_id = conversations.id " \
+    "ORDER BY messages.created_at DESC LIMIT 1) AS last_message_at",
+    "(SELECT messages.sender_id FROM messages WHERE messages.conversation_id = conversations.id " \
+    "ORDER BY messages.created_at DESC LIMIT 1) AS last_message_sender_id"
+  ].freeze
 
   before_action -> { authenticate! }
   def index
@@ -14,16 +22,13 @@ class ConversationsController < ApplicationController
       "AND messages.read_at IS NULL AND messages.sender_id <> ?) AS unread_count", current_user.id
     ])
     rows = Conversation.where("candidate_id = ? OR employer_id = ?", current_user.id, current_user.id)
-      .select(Conversation.arel_table[Arel.star],
-        "#{format(LATEST_MESSAGE, "LEFT(messages.body, #{PREVIEW_LENGTH})")} AS last_message_body",
-        "#{format(LATEST_MESSAGE, 'messages.created_at')} AS last_message_at",
-        "#{format(LATEST_MESSAGE, 'messages.sender_id')} AS last_message_sender_id",
-        unread_sql)
-      .includes(:candidate, :employer, :job).order(updated_at: :desc)
+      .select(Conversation.arel_table[Arel.star], *LATEST_MESSAGE_SELECTS, unread_sql)
+      .includes(:candidate, :employer, :job).order(updated_at: :desc).limit(200)
     render json: { conversations: rows.map { serialize(_1) } }
   end
 
   def create
+    return unless require_scalar_params!(:jobId, :bookingId, :candidateId, :employerId)
     return unless within_user_rate_limit?("conversation", limit: CREATE_LIMIT_PER_HOUR, period: 1.hour)
     return create_for_booking if params[:bookingId].present?
 

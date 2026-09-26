@@ -44,7 +44,6 @@ class ApiQueryBudgetTest < ActionDispatch::IntegrationTest
     "/api/reviews" => "OWNER: reviews — reviews_controller.rb:5 returns every published review",
     "/api/resources" => "OWNER: resources — resources_controller.rb:2 returns every published resource",
     "/api/employers" => "OWNER: talent — talent_controller.rb:76 returns every active employer to any signed-in user",
-    "/api/conversations" => "OWNER: messaging — conversations_controller.rb:11 returns every conversation",
     "/api/bookings/{requested_booking}/payments" => "OWNER: bookings — bookings_controller.rb:137 returns every payment of a booking",
     "/api/talent-folders" => "OWNER: talent-folders — talent_folders_controller.rb:3",
     "/api/talent-folders/{folder}" => "OWNER: talent-folders — talent_folders_controller.rb:10 returns every member",
