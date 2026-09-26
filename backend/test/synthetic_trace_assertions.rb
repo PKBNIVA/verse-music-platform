@@ -6,7 +6,7 @@ module SyntheticTraceAssertions
   LOOSE_USER_COLUMNS = [%w[recent_activities entity_id], %w[reports entity_id], %w[audit_logs entity_id]].freeze
 
   def user_reference_columns
-    connection = ActiveRecord::Base.connection
+    connection = ActiveRecord::Base.lease_connection
     from_foreign_keys = connection.tables.flat_map do |table|
       connection.foreign_keys(table).select { _1.to_table == "users" }.map { |fk| [table, fk.column] }
     end
@@ -21,7 +21,7 @@ module SyntheticTraceAssertions
 
   def assert_no_user_traces(user_ids)
     assert user_ids.any?, "expected some removed users to check"
-    connection = ActiveRecord::Base.connection
+    connection = ActiveRecord::Base.lease_connection
     columns = user_reference_columns
     assert_operator columns.size, :>=, 40, "user reference discovery looks incomplete: #{columns.inspect}"
     columns.each do |table, column|

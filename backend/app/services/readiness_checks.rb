@@ -3,7 +3,7 @@ require "timeout"
 class ReadinessChecks
   DATABASE_TIMEOUT_SECONDS = 2.5
 
-  def initialize(connection_provider: -> { ActiveRecord::Base.connection })
+  def initialize(connection_provider: -> { ActiveRecord::Base.lease_connection })
     @connection_provider = connection_provider
   end
 
