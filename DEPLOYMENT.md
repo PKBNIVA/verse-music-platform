@@ -87,6 +87,7 @@ Every release must pass:
 
 ```bash
 npm ci
+npm audit --omit=dev --audit-level=high
 npm run build
 npm run test:all
 npm run qa:e2e
@@ -95,7 +96,19 @@ bundle install
 bin/rails db:prepare
 bin/rails test
 bin/rails zeitwerk:check
+bundle exec brakeman --no-pager --exit-on-warn
+bundle exec bundler-audit check --update
 ```
+
+CI (`.github/workflows/rails-and-web.yml`) runs these as the `frontend`, `rails`, `security`
+and `integrated-journeys` jobs. The `rails` job also migrates an empty database and fails if
+`backend/db/schema.rb` differs from the committed file. `npm run test:all` runs only the
+frontend source smoke tests; the legacy Node server and its tests were removed.
+
+The Railway image (`backend/Dockerfile`, build context = repository root) installs exactly the
+gems in `backend/Gemfile.lock` with the Bundler version recorded there, in frozen deployment
+mode. Build-context ignore rules are in `backend/Dockerfile.dockerignore`. Production never
+rewrites `db/schema.rb` (`dump_schema_after_migration = false`).
 
 The `integrated-journeys` CI job also builds the Vite frontend against a Rails server
 and disposable PostgreSQL test database. It exercises both account roles through
