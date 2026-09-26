@@ -57,8 +57,11 @@ jobs:
           ruby-version: 3.3.6
           bundler-cache: true
           working-directory: backend
+      # Since Rails 8.0, db:migrate on an empty database loads db/schema.rb instead of
+      # running migrations. Remove it first so every migration really runs and the
+      # file is re-dumped from migrations alone; the next step diffs it against the commit.
       - name: Run every migration on an empty database
-        run: bin/rails db:migrate
+        run: rm db/schema.rb && bin/rails db:migrate
       - name: Check db/schema.rb matches the migrations
         run: |
           if ! git diff --exit-code -- db/schema.rb; then

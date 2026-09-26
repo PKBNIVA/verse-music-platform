@@ -7,6 +7,10 @@ Rails.application.configure do
   config.secret_key_base = ENV.fetch("SECRET_KEY_BASE")
   config.log_level = ENV.fetch("RAILS_LOG_LEVEL", "info")
   config.log_tags = [:request_id]
+  # Railway probes /api/live during deploys; keep those probes out of the request log.
+  config.silence_healthcheck_path = "/api/live"
+  # Record#inspect (error pages, console, error trackers) shows only the id, never PII.
+  config.active_record.attributes_for_inspect = [:id]
   config.active_storage.service = ENV["AWS_BUCKET"].present? ? :amazon : :local
   config.action_mailer.default_url_options = { host: ENV.fetch("FRONTEND_HOST", "localhost") }
   config.active_job.queue_adapter = :good_job
