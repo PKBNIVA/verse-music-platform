@@ -1,3 +1,4 @@
+import {usePageMeta} from '../../components/PageMeta';
 import { Link, useLocation } from 'react-router';
 import { PublicNav } from '../../components/PublicNav';
 
@@ -20,5 +21,6 @@ export default function LegalPage() {
   const path = useLocation().pathname.split('/').filter(Boolean)[0] || 'about';
   const key = path === 'community-guidelines' ? 'community' : path === 'refund-policy' ? 'refunds' : path;
   const content = sections[key] || sections.about;
+  usePageMeta(content.title, content.intro);
   return <div className="min-h-screen bg-slate-950 text-white"><PublicNav/><main className="max-w-4xl mx-auto px-5 py-14"><div className="text-xs uppercase tracking-[.2em] text-violet-300">Verse information</div><h1 className="text-4xl md:text-6xl font-bold mt-2">{content.title}</h1><p className="text-slate-300 leading-8 mt-6 text-lg">{content.intro}</p><div className="mt-9 space-y-4">{content.items.map(([title,body])=><section key={title} className="rounded-xl border border-white/10 bg-white/[.035] p-5"><h2 className="font-semibold text-lg">{title}</h2><p className="text-slate-400 leading-7 mt-2">{body}</p>{body.includes(SUPPORT_EMAIL)&&<a className="inline-block mt-3 text-violet-300 hover:text-violet-200 underline underline-offset-4" href={`mailto:${SUPPORT_EMAIL}`}>Email Verse support</a>}</section>)}</div>{['terms','privacy','cookies','refunds'].includes(key)&&<p className="text-xs text-slate-500 mt-7">Effective {EFFECTIVE_DATE}. Material updates will be published on this page.</p>}<div className="mt-8 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-400"><Link to="/terms">Terms</Link><Link to="/privacy">Privacy</Link><Link to="/safety">Safety</Link><Link to="/cookies">Browser storage</Link><Link to="/refund-policy">Refunds</Link><Link to="/community-guidelines">Conduct</Link><Link to="/accessibility">Accessibility</Link><Link to="/contact">Contact</Link></div></main></div>;
 }

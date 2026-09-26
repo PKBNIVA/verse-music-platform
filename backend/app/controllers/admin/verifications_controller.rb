@@ -6,7 +6,14 @@ module Admin
       request_record = VerificationRequest.find(params[:id])
       request_record.transaction do
         request_record.update!(status: params[:status], reviewed_by_id: current_user.id, reviewed_at: Time.current)
-        request_record.user.profile&.update!(verified: true) if params[:status] == "approved"
+        profile = request_record.user.profile
+        if params[:status] == "approved"
+          profile&.update!(verified: true)
+        elsif profile&.verified? && !request_record.user.verification_requests.where(status: "approved").where.not(id: request_record.id).exists?
+          # Rejecting a previously approved request must not leave the badge behind.
+          profile.update!(verified: false)
+        end
+        audit!("admin.verification.status", request_record, status: request_record.status)
       end
       Notification.create!(user: request_record.user, kind: "verification", title: "Verification update", body: "Your verification request was #{params[:status]}.")
       render json: { ok: true }

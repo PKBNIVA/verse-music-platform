@@ -14,9 +14,12 @@ module Admin
 
     def grant_plan
       return render_error("Invalid plan.", :bad_request) unless %w[pro studio enterprise].include?(params[:planCode])
+      days = params.fetch(:days, 30)
+      return render_error("Days must be a whole number between 1 and 366.", :bad_request) unless days.to_s.match?(/\A\d+\z/) && days.to_i.between?(1, 366)
       user = User.find(params[:id])
+      return render_error("Plans can only be granted to professional or organization accounts.", :unprocessable_entity) if user.admin?
       Subscription.where(user:, status: %w[active trialing pending]).update_all(status: "cancelled", updated_at: Time.current)
-      subscription = Subscription.create!(user:, plan_code: params[:planCode], provider: "internal", status: "active", current_period_start: Time.current, current_period_end: params.fetch(:days, 30).to_i.clamp(1, 366).days.from_now)
+      subscription = Subscription.create!(user:, plan_code: params[:planCode], provider: "internal", status: "active", current_period_start: Time.current, current_period_end: days.to_i.days.from_now)
       audit!("admin.plan.grant", subscription, planCode: subscription.plan_code)
       render json: { id: subscription.id }, status: :created
     end

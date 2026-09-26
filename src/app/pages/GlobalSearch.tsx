@@ -1,3 +1,4 @@
+import {usePageMeta} from '../components/PageMeta';
 import {FormEvent,useEffect,useState} from 'react';
 import {Link,useSearchParams} from 'react-router';
 import {AudioLines,Briefcase,Music,PlayCircle,Search,Sparkles,Users} from 'lucide-react';
@@ -14,6 +15,8 @@ const suggestions=['Playback singer','FOH engineer','Session guitarist','Wedding
 
 export default function GlobalSearch(){
   const[sp,setSp]=useSearchParams();
+  const metaQuery=(sp.get('q')||'').trim();
+  usePageMeta(metaQuery?`Search: ${metaQuery.slice(0,60)}`:'Search Verse','Search music jobs, professionals, bookable acts and work samples across the Verse network.');
   const[q,setQ]=useState(sp.get('q')||'');
   const[type,setType]=useState(sp.get('type')||'all');
   const[results,setResults]=useState<any[]>([]);
@@ -29,7 +32,7 @@ export default function GlobalSearch(){
     if(!query.trim()){setResults([]);setInterpreted([]);setError('');return}
     setLoading(true);setError('');
     apiGet<any>(`/search?q=${encodeURIComponent(query)}&type=${encodeURIComponent(selectedType)}`)
-      .then(d=>{setResults(d.results||[]);setInterpreted(d.interpretedAs||[]);const next=[query.trim(),...recent.filter(x=>x!==query.trim())].slice(0,6);setRecent(next);localStorage.setItem('verse_recent_searches',JSON.stringify(next))})
+      .then(d=>{setResults(d.results||[]);setInterpreted(d.interpretedAs||[]);const next=[query.trim(),...recent.filter(x=>x!==query.trim())].slice(0,6);setRecent(next);try{localStorage.setItem('verse_recent_searches',JSON.stringify(next))}catch{/* storage blocked: keep in memory */}})
       .catch(()=>setError('Search is taking a breather. Please try again in a moment.'))
       .finally(()=>setLoading(false));
   },[sp.toString()]);
