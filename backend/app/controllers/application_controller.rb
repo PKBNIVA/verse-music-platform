@@ -2,7 +2,7 @@ class ApplicationController < ActionController::API
   around_action :log_request
   before_action :require_verified_email_for_mutation
   rescue_from ActiveRecord::RecordNotFound, with: -> { render_error("Not found", :not_found) }
-  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity) }
+  rescue_from ActiveRecord::RecordInvalid, with: ->(error) { render_error(error.record.errors.full_messages.to_sentence, :unprocessable_entity, "VALIDATION_FAILED") }
   # Client mistakes that would otherwise surface as 500s (or as framework error pages without
   # the {error, code} shape). Later declarations take precedence over earlier ones.
   rescue_from ArgumentError, with: :render_invalid_argument

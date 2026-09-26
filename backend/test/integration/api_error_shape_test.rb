@@ -90,10 +90,16 @@ class ApiErrorShapeTest < ActionDispatch::IntegrationTest
   end
 
   test "omitted NOT NULL fields are 422 MISSING_FIELD naming the field" do
-    { "/api/talent-folders" => "name", "/api/band-projects" => "name", "/api/crew-plans" => "title" }.each do |path, field|
+    # Talent folders and crew plans validate in the model: 422 VALIDATION_FAILED; see below.
+    { "/api/band-projects" => "name" }.each do |path, field|
       post path, params: {}, headers: @world.headers(:emp), as: :json
       assert_error(422, "MISSING_FIELD", path)
       assert_equal "#{field} is required.", response.parsed_body["error"]
+    end
+    { "/api/talent-folders" => /Name can't be blank/, "/api/crew-plans" => /Title can't be blank/ }.each do |path, message|
+      post path, params: {}, headers: @world.headers(:emp), as: :json
+      assert_error(422, "VALIDATION_FAILED", path)
+      assert_match message, response.parsed_body["error"]
     end
     post "/api/band-projects/#{@world.refs[:emp][:project]}/roles", params: {}, headers: @world.headers(:emp), as: :json
     assert_error(422, "MISSING_FIELD")
