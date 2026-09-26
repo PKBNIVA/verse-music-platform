@@ -166,7 +166,10 @@ test('jobseeker pages fit the viewport with rich data', async ({page}) => {
   for (const path of ['/jobseeker/jobs', '/jobseeker/saved', '/jobseeker/alerts', '/jobseeker/applications']) {
     await page.goto(path);
     await expect(page.locator('main')).toContainText(long.slice(0, 20));
-    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    // Mobile browsers widen the layout viewport (zooming the page out) instead of scrolling,
+    // so compare the laid-out width against the device width, not innerWidth.
+    const width = page.viewportSize()!.width;
+    const overflow = await page.evaluate(w => Math.max(document.documentElement.scrollWidth, window.innerWidth) - w, width);
     expect(overflow, `${path} overflows horizontally`).toBeLessThanOrEqual(1);
   }
 });
