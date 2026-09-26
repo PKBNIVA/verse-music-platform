@@ -52,7 +52,7 @@ export function watchRuntimeFailures(page: Page) {
 }
 
 export async function openSettledPage(page: Page, path: string) {
-  if (!process.env.QA_BASE_URL) {
+  if (!process.env.QA_BASE_URL && process.env.QA_INTEGRATION !== 'true') {
     await page.route('**/api/**', async route => {
       const pathname = new URL(route.request().url()).pathname;
       if (pathname.endsWith('/me')) {

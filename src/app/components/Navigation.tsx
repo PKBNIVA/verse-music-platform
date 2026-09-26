@@ -41,7 +41,7 @@ export function Navigation() {
     {path:`${baseUrl}/candidates`,icon:Users,label:'Talent'},
     {path:`${baseUrl}/messages`,icon:MessageSquare,label:'Inbox'}
   ];
-  const handleLogout = async () => { await logout(); navigate('/'); };
+  const handleLogout = async () => { navigate('/', {replace:true}); await logout(); };
 
   return <>
     <ProductTour role={isJobSeeker ? 'jobseeker' : 'employer'} />
