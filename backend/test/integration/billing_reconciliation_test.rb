@@ -18,6 +18,15 @@ class BillingReconciliationTest < ActionDispatch::IntegrationTest
     @previous_env.each { |key, value| ENV[key] = value }
   end
 
+  test "plan catalog matches the live Razorpay monthly prices" do
+    get "/api/billing/plans"
+
+    assert_response :success
+    plans = response.parsed_body.fetch("plans").index_by { |plan| plan.fetch("code") }
+    assert_equal 2499, plans.fetch("pro").fetch("monthly")
+    assert_equal 5999, plans.fetch("studio").fetch("monthly")
+  end
+
   test "provider creation remains pending and does not grant paid entitlement" do
     gateway = fake_gateway(create_subscription: { "id" => "sub_pending", "status" => "created" })
 
