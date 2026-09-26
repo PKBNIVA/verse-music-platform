@@ -1,4 +1,10 @@
 class AuthController < ApplicationController
+  LOGIN_FAILURE_PERIOD = 15.minutes
+  LOGIN_FAILURES_PER_EMAIL = 10
+  LOGIN_FAILURES_PER_IP = 50
+  MAX_LIVE_SESSIONS = 10
+  PRODUCTION_FRONTEND_URL = "https://verse-music-platform.vercel.app".freeze
+
   def register
     return unless throttle!("register", limit: 20, period: 1.hour)
     role = params[:role].to_s
@@ -16,9 +22,14 @@ class AuthController < ApplicationController
   end
 
   def login
-    return unless throttle!("login", limit: 20, period: 1.hour)
-    user = User.find_by(email: params[:email].to_s.downcase)
-    return render_error("Incorrect email or password.", :unauthorized) unless user&.authenticate(params[:password])
+    email = normalized_email
+    scopes = login_failure_scopes(email)
+    return if failure_budget_exhausted?("login-failure", scopes, period: LOGIN_FAILURE_PERIOD)
+    user = User.find_by(email:)
+    unless user&.authenticate(params[:password])
+      record_failure!("login-failure", scopes, period: LOGIN_FAILURE_PERIOD)
+      return render_error("Incorrect email or password.", :unauthorized)
+    end
     return render_error("This account is not active.", :forbidden) unless user.active?
     user.update!(last_login_at: Time.current)
     token = sign_in(user)
@@ -42,7 +53,7 @@ class AuthController < ApplicationController
     return unless throttle!("email-verification", limit: 5, period: 1.hour)
     return render json: { ok: true, alreadyVerified: true } if current_user.email_verified?
     token = issue_token("verify_email", 24.hours)
-    render json: token_response(token, "/verify-email")
+    render json: token_response(token, "/verify-email", current_user)
   end
 
   def verify_email
@@ -58,9 +69,14 @@ class AuthController < ApplicationController
 
   def forgot_password
     return unless throttle!("password-reset", limit: 10, period: 1.hour)
-    if (user = User.find_by(email: params[:email].to_s.downcase))
+    if (user = User.find_by(email: normalized_email))
       token = issue_token("reset_password", 2.hours, user)
-      token_response(token, "/reset-password")
+      _link, delivery = deliver_token(token, "/reset-password", user)
+      unless delivery[:queued]
+        Rails.logger.warn({ event: "password_reset_email_skipped", userId: user.id, reason: delivery[:reason] }.to_json)
+      end
+    else
+      Rails.logger.info({ event: "password_reset_unknown_account" }.to_json)
     end
     render json: { ok: true, message: "If an account exists, password reset instructions have been sent." }
   end
@@ -84,7 +100,7 @@ class AuthController < ApplicationController
   def sign_in(user)
     raw = SecureRandom.urlsafe_base64(48)
     user.sessions.create!(token_digest: digest(raw), expires_at: 30.days.from_now)
-    user.sessions.where(id: user.sessions.order(created_at: :desc).offset(5).select(:id)).delete_all
+    user.sessions.where(id: user.sessions.order(created_at: :desc).offset(MAX_LIVE_SESSIONS).select(:id)).delete_all
     raw
   end
 
@@ -95,17 +111,45 @@ class AuthController < ApplicationController
     raw
   end
 
-  def token_response(token, path)
-    user = current_user || User.find_by(email: params[:email].to_s.downcase)
+  def normalized_email = params[:email].to_s.strip.downcase
+
+  def login_failure_scopes(email)
+    { email: [email, LOGIN_FAILURES_PER_EMAIL], ip: [request.remote_ip, LOGIN_FAILURES_PER_IP] }
+  end
+
+  def token_response(token, path, user)
     link, delivery = deliver_token(token, path, user)
     result = { ok: true, delivery: }
     result[:debugLink] = link unless Rails.env.production?
     result
   end
 
+  # Builds the link and queues delivery. The returned hash is the public
+  # `delivery`/`verificationDelivery` contract: { queued: true } once a provider
+  # job is enqueued, otherwise { queued: false, delivered: false, reason: }.
   def deliver_token(token, path, user)
-    link = "#{ENV.fetch('FRONTEND_URL', 'http://localhost:5173')}#{path}?token=#{CGI.escape(token)}"
-    delivery = EmailDelivery.call(to: user&.email, template: path.include?("reset") ? "reset_password" : "verify_email", data: { link: })
-    [link, delivery]
+    link = "#{frontend_url}#{path}?token=#{CGI.escape(token)}"
+    template = path.include?("reset") ? "reset_password" : "verify_email"
+    [link, queue_email(user, template, link)]
+  end
+
+  def queue_email(user, template, link)
+    return { queued: false, delivered: false, reason: "Recipient unavailable" } if user&.email.blank?
+    return { queued: false, delivered: false, reason: "Email provider not configured" } unless EmailDelivery.configured?
+    EmailDeliveryJob.enqueue(user:, template:, link:)
+    { queued: true }
+  rescue StandardError => error
+    # The account/token already exists; report the failure instead of a 500.
+    Rails.logger.error({ event: "email_enqueue_failed", template:, error: error.class.name }.to_json)
+    { queued: false, delivered: false, reason: "delivery error" }
+  end
+
+  def frontend_url
+    configured = ENV["FRONTEND_URL"].to_s.strip.sub(%r{/+\z}, "")
+    return configured if configured.present?
+    return "http://localhost:5173" unless Rails.env.production?
+
+    Rails.logger.error({ event: "frontend_url_missing", fallback: PRODUCTION_FRONTEND_URL }.to_json)
+    PRODUCTION_FRONTEND_URL
   end
 end

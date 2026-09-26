@@ -14,7 +14,10 @@ class EmailDelivery
     }
   }.freeze
 
-  def self.call(to:, template:, data:)
+  # Returns a result hash. Network and configuration errors are reported as an
+  # unsuccessful delivery unless raise_errors is true (used by EmailDeliveryJob
+  # so it can retry transient failures).
+  def self.call(to:, template:, data:, raise_errors: false)
     return { delivered: false, reason: "Recipient unavailable" } if to.blank?
     return deliver_with_brevo(to:, template:, data:) if brevo_configured?
     return deliver_with_resend(to:, template:, data:) if ENV["RESEND_API_KEY"].present?
@@ -28,11 +31,21 @@ class EmailDelivery
       request.options.open_timeout = 5
       request.options.timeout = 10
     end
+    log_rejection("webhook", template, response)
     { delivered: response.success?, status: response.status }
   rescue StandardError => error
+    raise if raise_errors
     Rails.logger.error("email delivery failed: #{error.class}")
     { delivered: false, reason: "delivery error" }
   end
+
+  def self.provider
+    return "brevo" if brevo_configured?
+    return "resend" if ENV["RESEND_API_KEY"].present?
+    "webhook" if ENV["EMAIL_DELIVERY_WEBHOOK"].present?
+  end
+
+  def self.configured? = provider.present?
 
   def self.brevo_configured?
     ENV["BREVO_API_KEY"].present? && ENV["BREVO_SENDER_EMAIL"].present?
@@ -54,6 +67,7 @@ class EmailDelivery
       request.options.open_timeout = 5
       request.options.timeout = 10
     end
+    log_rejection("brevo", template, response)
     { delivered: response.success?, status: response.status, provider: "brevo" }
   end
 
@@ -71,7 +85,15 @@ class EmailDelivery
       request.options.open_timeout = 5
       request.options.timeout = 10
     end
+    log_rejection("resend", template, response)
     { delivered: response.success?, status: response.status }
+  end
+
+  # Logs only the provider, template and status code: provider response bodies
+  # can echo the message (and therefore the token link) back.
+  def self.log_rejection(provider, template, response)
+    return if response.success?
+    Rails.logger.warn({ event: "email_delivery_rejected", provider:, template:, status: response.status }.to_json)
   end
 
   def self.email_html(content:, link:)
@@ -81,5 +103,5 @@ class EmailDelivery
     HTML
   end
 
-  private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html
+  private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html, :log_rejection
 end

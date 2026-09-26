@@ -91,7 +91,36 @@ class ApplicationController < ActionController::API
     key = "rate:#{bucket}:#{request.remote_ip}:#{Time.current.to_i / period.to_i}"
     count = Rails.cache.increment(key, 1, expires_in: period) || 1
     return true if count <= limit
-    render_error("Too many requests. Try again later.", :too_many_requests)
+    render_too_many_requests
     false
+  end
+
+  # Failure-only throttling: callers check the budget before attempting an
+  # action and spend it only when the attempt fails. Each scope is a
+  # [identifier, limit] pair, e.g. { email: [address, 10], ip: [remote_ip, 50] }.
+  # Identifiers are hashed so cache keys never contain email addresses.
+  def failure_budget_exhausted?(bucket, scopes, period:)
+    exhausted = scopes.any? do |scope, (identifier, limit)|
+      next false if identifier.blank?
+      # Incrementing by zero is an atomic read that works on every cache store.
+      (Rails.cache.increment(failure_key(bucket, scope, identifier, period), 0, expires_in: period) || 0) >= limit
+    end
+    render_too_many_requests if exhausted
+    exhausted
+  end
+
+  def record_failure!(bucket, scopes, period:)
+    scopes.each do |scope, (identifier, _limit)|
+      next if identifier.blank?
+      Rails.cache.increment(failure_key(bucket, scope, identifier, period), 1, expires_in: period)
+    end
+  end
+
+  def failure_key(bucket, scope, identifier, period)
+    "rate:#{bucket}:#{scope}:#{digest(identifier)}:#{Time.current.to_i / period.to_i}"
+  end
+
+  def render_too_many_requests
+    render_error("Too many requests. Try again later.", :too_many_requests)
   end
 end

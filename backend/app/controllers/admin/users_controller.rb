@@ -7,7 +7,7 @@ module Admin
       return render_error("Invalid user status.", :bad_request) unless %w[active suspended pending].include?(params[:status])
       user = User.find(params[:id])
       user.update!(status: params[:status])
-      user.sessions.delete_all if user.suspended?
+      user.sessions.delete_all unless user.active?
       audit!("admin.user.status", user, status: user.status)
       render json: { ok: true }
     end
