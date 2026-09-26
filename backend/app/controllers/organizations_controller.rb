@@ -76,7 +76,6 @@ class OrganizationsController < ApplicationController
   end
 
   def seat_limit(owner)
-    code = Subscription.where(user: owner, status: %w[active trialing]).order(created_at: :desc).pick(:plan_code) || "free"
-    { "free" => 1, "pro" => 2, "studio" => 8, "enterprise" => 999 }.fetch(code, 1)
+    Entitlements.for(owner).limit(:seats)
   end
 end

@@ -12,11 +12,16 @@ class BookingsController < ApplicationController
     return render_error("You cannot book your own act.", :conflict) if act.owner_id == current_user.id
     booking = nil
     BookingRequest.transaction do
+      current_user.lock!
+      active = BookingRequest.where(requester: current_user, status: Entitlements::ACTIVE_BOOKING_STATUSES).count
+      Entitlements.for(current_user).ensure_capacity!(:bookings, active)
       booking = BookingRequest.create!(act:, requester: current_user, event_type: params[:eventType], event_name: params[:eventName], event_date: params[:eventDate], start_time: params[:startTime], duration_minutes: params[:durationMinutes], venue_name: params[:venueName], venue_address: params[:venueAddress], city: params[:city], audience_size: params[:audienceSize], indoor_outdoor: params[:indoorOutdoor], budget_min: params[:budgetMin], budget_max: params[:budgetMax], currency: params[:currency].presence || "INR", requirements: params[:requirements], production_provided: params[:productionProvided] || [], travel_provided: params[:travelProvided] || false, accommodation_provided: params[:accommodationProvided] || false, status: "requested")
       Notification.create!(user: act.owner, kind: "booking", title: "New booking enquiry", body: "#{current_user.name} enquired about #{act.name}.", link: "/bookings")
       audit!("booking.create", booking)
     end
     render json: { id: booking.id }, status: :created
+  rescue Entitlements::LimitReached => error
+    render_error(error.message, :payment_required, Entitlements::ERROR_CODE)
   end
 
   def quote
@@ -44,7 +49,8 @@ class BookingsController < ApplicationController
   def payment_order
     booking = BookingRequest.includes(:booking_quotes).find(params[:id])
     return render_error("Booking not found", :not_found) unless booking.requester_id == current_user.id
-    return render_error("Live payments are not configured.", :service_unavailable) if Rails.env.production? && ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET").any?(&:blank?)
+    # Fail closed in production without usable keys, and anywhere a key is present but refused for this environment.
+    return render_error("Live payments are not configured.", :service_unavailable) if (Rails.env.production? || RazorpayConfig.key_present?) && !RazorpayConfig.usable?
     payment = existing = quote = attempt = nil
     payment_error = nil
     booking.with_lock do
@@ -53,10 +59,12 @@ class BookingsController < ApplicationController
       payment_error = ["No active quote", :conflict] if !payment_error && !quote
       payment_error = ["This quote has expired.", :conflict] if !payment_error && quote.valid_until.present? && quote.valid_until <= Time.current
       existing = booking.booking_payments.where(kind: "deposit", status: %w[created paid]).order(created_at: :desc).first unless payment_error
+      # A Razorpay order that was never issued (crash/ambiguous create) must not block a retry forever.
+      existing = nil if existing&.unissued_expired? && existing.expire_unissued!
       unless payment_error || existing
         amount = (quote.total * quote.deposit_percent / 100.0).round
         payment_error = ["Deposit amount must be greater than zero.", :unprocessable_entity] unless amount.positive?
-        payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency.to_s.upcase, provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "internal", status: "created") unless payment_error
+        payment = booking.booking_payments.create!(booking_quote: quote, payer: current_user, kind: "deposit", amount:, currency: quote.currency.to_s.upcase, provider: RazorpayConfig.key_present? ? "razorpay" : "internal", status: "created") unless payment_error
         if payment&.provider == "razorpay"
           attempt = BillingAttempt.create!(user: current_user, operation: "booking_order_create", provider: "razorpay", idempotency_key: billing_idempotency_key("booking_order_create"), state: "pending", resource_type: "BookingPayment", resource_id: payment.id, request_payload: { booking_id: booking.id, amount: payment.amount * 100, currency: payment.currency }, last_attempted_at: Time.current)
         end
@@ -94,18 +102,29 @@ class BookingsController < ApplicationController
     return render_error("Payment is already confirmed.", :conflict) if payment.status == "paid"
     return render_error("Mock payments are disabled in production.", :forbidden) if Rails.env.production? && payment.provider != "razorpay"
     if payment.provider == "razorpay"
+      return render_error("Live payments are not configured.", :service_unavailable) unless RazorpayConfig.usable?
       return render_error("Payment order mismatch", :unprocessable_entity) unless payment.provider_order_id.present? && ActiveSupport::SecurityUtils.secure_compare(payment.provider_order_id, params[:orderId].to_s)
       expected = OpenSSL::HMAC.hexdigest("SHA256", ENV.fetch("RAZORPAY_KEY_SECRET"), "#{payment.provider_order_id}|#{params[:paymentId]}")
       return render_error("Invalid payment signature", :unprocessable_entity) unless ActiveSupport::SecurityUtils.secure_compare(expected, params[:signature].to_s)
       provider_payment = RazorpayGateway.new.payment(params[:paymentId])
       valid_provider_payment = provider_payment["status"] == "captured" &&
+        provider_payment["id"].to_s == params[:paymentId].to_s &&
         provider_payment["order_id"].to_s == payment.provider_order_id &&
         provider_payment["amount"].to_i == payment.amount * 100 &&
         provider_payment["currency"].to_s.upcase == payment.currency
       return render_error("Payment has not been captured for the expected amount.", :unprocessable_entity) unless valid_provider_payment
+
+      # Same ledger transition as the signed capture webhook (also recovers a capture after a reported decline).
+      result = payment.apply_capture!(entity: provider_payment, event_at: Time.current, event_id: "checkout:#{params[:paymentId]}")
+      return render json: { ok: true } if %i[applied applied_after_failure].include?(result)
+      return render_error("Payment is already confirmed.", :conflict) if result == :already_paid
+      return render_error("A deposit has already been paid for this booking. Contact support about the duplicate payment.", :conflict) if result == :duplicate_capture
+
+      return render_error("This payment can no longer be confirmed.", :conflict)
     end
     payment.with_lock do
       return render_error("Payment is already confirmed.", :conflict) if payment.status == "paid"
+      return render_error("This payment can no longer be confirmed.", :conflict) unless payment.status == "created"
       payment.update!(status: "paid", provider_payment_id: params[:paymentId])
     end
     render json: { ok: true }

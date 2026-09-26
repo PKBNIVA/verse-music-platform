@@ -28,4 +28,29 @@ class Subscription < ApplicationRecord
       :applied
     end
   end
+
+  # Razorpay sends the billing cycle as unix seconds (`current_start`/`current_end`).
+  # Periods only move forward so a late or replayed event cannot shorten access,
+  # and a terminal subscription is never extended.
+  def apply_provider_period!(entity)
+    period_start = unix_time(entity["current_start"])
+    period_end = unix_time(entity["current_end"])
+    return :ignored unless period_start && period_end && period_end > period_start
+
+    with_lock do
+      return :ignored if status == "cancelled"
+      return :stale if current_period_end.present? && period_end <= current_period_end
+
+      update!(current_period_start: period_start, current_period_end: period_end)
+      :applied
+    end
+  end
+
+  private
+
+  def unix_time(value)
+    return nil if value.blank? || !value.to_s.match?(/\A\d+\z/)
+
+    Time.at(value.to_i).utc
+  end
 end

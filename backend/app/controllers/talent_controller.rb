@@ -41,8 +41,17 @@ class TalentController < ApplicationController
 
   def shortlist
     return unless authenticate!("jobseeker", "employer")
-    TalentShortlist.find_or_create_by!(employer: current_user, candidate: public_scope.find(params[:id])) { _1.note = params[:note] }
+    candidate = public_scope.find(params[:id])
+    TalentShortlist.transaction do
+      current_user.lock!
+      unless TalentShortlist.exists?(employer: current_user, candidate:)
+        Entitlements.for(current_user).ensure_capacity!(:shortlist, TalentShortlist.where(employer: current_user).count)
+      end
+      TalentShortlist.find_or_create_by!(employer: current_user, candidate:) { _1.note = params[:note] }
+    end
     render json: { ok: true }, status: :created
+  rescue Entitlements::LimitReached => error
+    render_error(error.message, :payment_required, Entitlements::ERROR_CODE)
   end
 
   def unshortlist

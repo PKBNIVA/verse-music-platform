@@ -18,7 +18,6 @@ class BandProjectsController < ApplicationController
   private
 
   def active_post_limit
-    code = Subscription.where(user: current_user, status: %w[active trialing]).order(created_at: :desc).pick(:plan_code) || "free"
-    { "free" => 1, "pro" => 10, "studio" => 50, "enterprise" => 9999 }.fetch(code, 1)
+    Entitlements.for(current_user).limit(:active_posts)
   end
 end

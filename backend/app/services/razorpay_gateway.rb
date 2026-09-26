@@ -6,6 +6,9 @@ class RazorpayGateway
   def initialize
     @key_id = ENV.fetch("RAZORPAY_KEY_ID")
     @key_secret = ENV.fetch("RAZORPAY_KEY_SECRET")
+    unless RazorpayConfig.key_mode_allowed?(@key_id)
+      raise GatewayError.new("Razorpay is not configured for this environment", code: "key_mode_rejected")
+    end
   end
 
   def create_order(amount_paise:, currency:, receipt:, notes: {})
@@ -26,8 +29,8 @@ class RazorpayGateway
     request(:get, "orders/#{order_id}")
   end
 
-  def cancel_subscription(subscription_id)
-    post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: 1)
+  def cancel_subscription(subscription_id, at_cycle_end: true)
+    post("subscriptions/#{subscription_id}/cancel", cancel_at_cycle_end: at_cycle_end ? 1 : 0)
   end
 
   def payment(payment_id)

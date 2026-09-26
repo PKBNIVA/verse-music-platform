@@ -15,6 +15,11 @@ Rails.application.configure do
       cron: "17 3 * * *",
       class: "AuthCleanupJob",
       description: "Delete expired sessions and email tokens expired or used more than 7 days ago"
+    },
+    billing_reconciliation: {
+      cron: "7,37 * * * *",
+      class: "BillingReconciliationJob",
+      description: "Reconcile or expire stuck billing attempts and unissued booking payments"
     }
   }
 end

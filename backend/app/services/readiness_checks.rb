@@ -17,8 +17,8 @@ class ReadinessChecks
       backgroundJobs: background_jobs_check,
       storage: check(!Rails.env.production? || ENV["AWS_BUCKET"].present? || ENV["PERSISTENT_UPLOADS"] == "true", required: false,
         provider: ENV["AWS_BUCKET"].present? ? "s3-compatible" : ENV["PERSISTENT_UPLOADS"] == "true" ? "persistent-disk" : "disabled"),
-      payments: check(!Rails.env.production? || ENV.values_at("RAZORPAY_KEY_ID", "RAZORPAY_KEY_SECRET", "RAZORPAY_WEBHOOK_SECRET").all?(&:present?), required: false,
-        provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled"),
+      payments: check(payments_ready?, required: false,
+        provider: ENV["RAZORPAY_KEY_ID"].present? ? "razorpay" : "disabled", mode: RazorpayConfig.mode),
       emailDelivery: check(!Rails.env.production? || EmailDelivery.brevo_configured? || (ENV["RESEND_API_KEY"].present? && ENV["EMAIL_FROM"].present?) || ENV["EMAIL_DELIVERY_WEBHOOK"].present?,
         required: ENV["REQUIRE_EMAIL_VERIFICATION"] == "true",
         provider: EmailDelivery.brevo_configured? ? "brevo" : ENV["RESEND_API_KEY"].present? ? "resend" : ENV["EMAIL_DELIVERY_WEBHOOK"].present? ? "webhook" : "disabled")
@@ -34,6 +34,11 @@ class ReadinessChecks
   end
 
   private
+
+  def payments_ready?
+    return false if RazorpayConfig.key_present? && !RazorpayConfig.key_mode_allowed?
+    !Rails.env.production? || (RazorpayConfig.usable? && ENV["RAZORPAY_WEBHOOK_SECRET"].present?)
+  end
 
   def background_jobs_check
     adapter = ActiveJob::Base.queue_adapter_name
