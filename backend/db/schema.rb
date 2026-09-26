@@ -674,6 +674,20 @@ ActiveRecord::Schema[7.2].define(version: 2026_09_26_140000) do
     t.index ["user_id"], name: "index_sessions_on_user_id"
   end
 
+  create_table "sign_in_codes", id: :string, force: :cascade do |t|
+    t.citext "email", null: false
+    t.string "code_digest", null: false
+    t.string "pending_name"
+    t.string "pending_role"
+    t.integer "attempts", default: 0, null: false
+    t.datetime "expires_at", null: false
+    t.datetime "used_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["email", "created_at"], name: "index_sign_in_codes_on_email_and_created_at"
+    t.index ["expires_at"], name: "index_sign_in_codes_on_expires_at"
+  end
+
   create_table "subscriptions", id: :string, force: :cascade do |t|
     t.string "user_id", null: false
     t.string "plan_code", null: false

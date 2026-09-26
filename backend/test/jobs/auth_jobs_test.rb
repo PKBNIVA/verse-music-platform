@@ -120,6 +120,17 @@ class AuthJobsTest < ActiveJob::TestCase
     assert_equal [fresh_unused, recently_expired, recently_used].map(&:id).sort, @user.email_tokens.pluck(:id).sort
   end
 
+  test "cleanup job removes sign-in codes that expired more than a week ago" do
+    now = Time.current
+    old, _raw = travel_to(now - 8.days) { SignInCode.issue!(email: "old@example.com") }
+    recent, _raw = travel_to(now - 1.day) { SignInCode.issue!(email: "recent@example.com") }
+
+    AuthCleanupJob.perform_now(now)
+
+    assert_not SignInCode.exists?(old.id)
+    assert SignInCode.exists?(recent.id)
+  end
+
   test "cleanup job is scheduled daily through GoodJob cron" do
     cron = Rails.application.config.good_job.cron.fetch(:auth_cleanup)
     assert_equal "AuthCleanupJob", cron.fetch(:class)

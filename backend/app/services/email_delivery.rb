@@ -11,6 +11,14 @@ class EmailDelivery
       heading: "Verify your email",
       copy: "Confirm this email address to secure your Verse account.",
       action: "Verify email"
+    },
+    # data: { code: }. Deliberately no link: a code-only email cannot be used
+    # by link scanners or from a forwarded message preview.
+    "sign_in_code" => {
+      subject: "Your Verse sign-in code",
+      heading: "Your sign-in code",
+      copy: "Enter this code on Verse to continue. It expires in 10 minutes and can be used once. Verse will never ask you for this code by phone or chat.",
+      action: nil
     }
   }.freeze
 
@@ -53,7 +61,6 @@ class EmailDelivery
 
   def self.deliver_with_brevo(to:, template:, data:)
     content = TEMPLATES.fetch(template) { raise ArgumentError, "Unknown email template" }
-    link = data.fetch(:link)
     response = Faraday.post("https://api.brevo.com/v3/smtp/email") do |request|
       request.headers["Content-Type"] = "application/json"
       request.headers["Accept"] = "application/json"
@@ -61,8 +68,8 @@ class EmailDelivery
       request.body = {
         sender: { name: ENV.fetch("BREVO_SENDER_NAME", "Verse"), email: ENV.fetch("BREVO_SENDER_EMAIL") },
         to: [{ email: to }], subject: content[:subject],
-        htmlContent: email_html(content:, link:),
-        textContent: "#{content[:heading]}\n\n#{content[:copy]}\n\n#{link}"
+        htmlContent: email_html(content:, data:),
+        textContent: email_text(content:, data:)
       }.to_json
       request.options.open_timeout = 5
       request.options.timeout = 10
@@ -73,14 +80,13 @@ class EmailDelivery
 
   def self.deliver_with_resend(to:, template:, data:)
     content = TEMPLATES.fetch(template) { raise ArgumentError, "Unknown email template" }
-    link = data.fetch(:link)
     response = Faraday.post("https://api.resend.com/emails") do |request|
       request.headers["Content-Type"] = "application/json"
       request.headers["Authorization"] = "Bearer #{ENV.fetch('RESEND_API_KEY')}"
       request.body = {
         from: ENV.fetch("EMAIL_FROM"), to: [to], subject: content[:subject],
-        html: email_html(content:, link:),
-        text: "#{content[:heading]}\n\n#{content[:copy]}\n\n#{link}"
+        html: email_html(content:, data:),
+        text: email_text(content:, data:)
       }.to_json
       request.options.open_timeout = 5
       request.options.timeout = 10
@@ -90,18 +96,32 @@ class EmailDelivery
   end
 
   # Logs only the provider, template and status code: provider response bodies
-  # can echo the message (and therefore the token link) back.
+  # can echo the message (and therefore the token link or code) back.
   def self.log_rejection(provider, template, response)
     return if response.success?
     Rails.logger.warn({ event: "email_delivery_rejected", provider:, template:, status: response.status }.to_json)
   end
 
-  def self.email_html(content:, link:)
-    safe_link = ERB::Util.html_escape(link)
+  # Link templates require data[:link]; code templates require data[:code].
+  def self.email_body_value(content:, data:)
+    content[:action] ? data.fetch(:link) : data.fetch(:code).to_s
+  end
+
+  def self.email_text(content:, data:)
+    "#{content[:heading]}\n\n#{content[:copy]}\n\n#{email_body_value(content:, data:)}"
+  end
+
+  def self.email_html(content:, data:)
+    value = ERB::Util.html_escape(email_body_value(content:, data:))
+    body = if content[:action]
+      %(<a href="#{value}" style="display:inline-block;margin-top:18px;padding:13px 20px;border-radius:12px;background:#7c3aed;color:white;text-decoration:none;font-weight:700">#{content[:action]}</a>)
+    else
+      %(<p style="margin:22px 0 0;font-family:'Courier New',monospace;font-size:34px;font-weight:800;letter-spacing:8px;color:#f8fafc">#{value}</p>)
+    end
     <<~HTML.squish
-      <!doctype html><html><body style="margin:0;background:#0b0b12;color:#f8fafc;font-family:Arial,sans-serif"><div style="max-width:560px;margin:0 auto;padding:40px 24px"><div style="font-size:22px;font-weight:800;color:#a78bfa">VERSE</div><h1 style="font-size:28px;margin:28px 0 12px">#{content[:heading]}</h1><p style="color:#cbd5e1;line-height:1.6">#{content[:copy]}</p><a href="#{safe_link}" style="display:inline-block;margin-top:18px;padding:13px 20px;border-radius:12px;background:#7c3aed;color:white;text-decoration:none;font-weight:700">#{content[:action]}</a><p style="margin-top:28px;color:#94a3b8;font-size:13px">If you did not request this, you can safely ignore this email.</p></div></body></html>
+      <!doctype html><html><body style="margin:0;background:#0b0b12;color:#f8fafc;font-family:Arial,sans-serif"><div style="max-width:560px;margin:0 auto;padding:40px 24px"><div style="font-size:22px;font-weight:800;color:#a78bfa">VERSE</div><h1 style="font-size:28px;margin:28px 0 12px">#{content[:heading]}</h1><p style="color:#cbd5e1;line-height:1.6">#{content[:copy]}</p>#{body}<p style="margin-top:28px;color:#94a3b8;font-size:13px">If you did not request this, you can safely ignore this email.</p></div></body></html>
     HTML
   end
 
-  private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html, :log_rejection
+  private_class_method :deliver_with_brevo, :deliver_with_resend, :email_html, :email_text, :email_body_value, :log_rejection
 end

@@ -10,6 +10,8 @@ Rails.application.routes.draw do
     post "auth/verify-email", to: "auth#verify_email"
     post "auth/forgot-password", to: "auth#forgot_password"
     post "auth/reset-password", to: "auth#reset_password"
+    post "auth/otp/request", to: "auth#otp_request"
+    post "auth/otp/verify", to: "auth#otp_verify"
     get "me", to: "auth#me"
     put "profile", to: "profiles#update"
 
