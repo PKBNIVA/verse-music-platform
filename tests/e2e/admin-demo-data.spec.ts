@@ -59,6 +59,8 @@ async function openAdmin(page: Page) {
   await page.addInitScript(() => localStorage.setItem('verse_access_token', 'qa-admin-token'));
   await page.route('**/api/**', api.handle);
   await page.goto('/admin');
+  // The demo data panel lives in its own tab of the admin console.
+  await page.getByRole('tab', {name: 'Demo data'}).click();
   const panel = page.getByTestId('demo-data-panel');
   await expect(panel).toBeVisible();
   return {api, panel};

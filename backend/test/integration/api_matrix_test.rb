@@ -77,6 +77,8 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
     [:get, "/api/admin/users", :admin, { keys: %w[users] }],
     [:patch, "/api/admin/users/{user}", :admin, { params: { status: "active" }, missing: :user, bad: { status: "root" }, bad_status: [400] }],
     [:put, "/api/admin/users/{user}", :admin, { params: { status: "active" }, missing: :user }],
+    [:get, "/api/admin/users/lookup?email=nobody@example.com", :admin, { keys: %w[exists diagnosis] }],
+    [:post, "/api/admin/users/{user}/revoke-sessions", :admin, { missing: :user }],
     [:post, "/api/admin/users/{user}/grant-plan", :admin, { ok: [201], params: { planCode: "pro" }, missing: :user, bad: { planCode: "platinum" }, bad_status: [400] }],
     [:get, "/api/admin/jobs", :admin, { keys: %w[jobs] }],
     [:patch, "/api/admin/jobs/{job}", :admin, { params: { status: "published" }, missing: :job, bad: { status: "draft" }, bad_status: [400] }],

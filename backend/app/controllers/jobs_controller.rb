@@ -9,6 +9,8 @@ class JobsController < ApplicationController
       return render_error("Search filter \"#{bad}\" must be a single text value.", :bad_request, "INVALID_FILTER")
     end
     jobs = Job.published.with_applications_count.includes(employer: :profile).order(featured: :desc, created_at: :desc)
+    # Same rule as talent: non-demo synthetic QA batches are only listed to synthetic viewers.
+    jobs = SyntheticQa::Demo.publicly_listed(jobs.joins(:employer)) unless current_user&.synthetic_batch.present?
     query = params[:q].to_s.strip
     if query.present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(query)}%"
@@ -28,7 +30,8 @@ class JobsController < ApplicationController
 
   def show
     job = Job.with_applications_count.includes(employer: :profile).find(params[:id])
-    unless job.published? || current_user&.admin? || current_user&.id == job.employer_id
+    hidden_synthetic = job.employer.synthetic_batch.present? && !job.employer.synthetic_batch.start_with?(SyntheticQa::Demo::PREFIX) && current_user&.synthetic_batch.blank?
+    unless (job.published? && !hidden_synthetic) || current_user&.admin? || current_user&.id == job.employer_id
       return render_error("Opportunity not found", :not_found)
     end
     applied = current_user&.jobseeker? && Application.exists?(candidate: current_user, job:)

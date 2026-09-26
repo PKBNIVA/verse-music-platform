@@ -71,6 +71,21 @@ class AdminSignInDoctorTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body["diagnosis"].pluck("code"), "SESSION_CAP"
   end
 
+  test "lookup reports outstanding sign-in codes" do
+    SignInCode.issue!(email: @artist.email)
+    get "/api/admin/users/lookup", params: { email: @artist.email }, headers: auth(@token)
+    body = response.parsed_body
+    assert_equal 1, body.dig("signInCodes", "outstanding")
+    assert body.dig("signInCodes", "lastRequestedAt").present?
+    assert (body["diagnosis"].pluck("code") & %w[SIGN_IN_CODE_UNUSED SIGN_IN_CODE_UNDELIVERABLE]).any?
+    assert_not_includes response.body, "code_digest"
+
+    SignInCode.issue!(email: "new-person@example.com", pending_name: "New", pending_role: "jobseeker")
+    get "/api/admin/users/lookup", params: { email: "new-person@example.com" }, headers: auth(@token)
+    assert_equal false, response.parsed_body["exists"]
+    assert_equal 1, response.parsed_body.dig("signInCodes", "outstanding")
+  end
+
   test "revoke-sessions signs the user out everywhere and is audited" do
     user_token = session_for(@artist)
     session_for(@artist)

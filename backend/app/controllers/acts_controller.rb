@@ -6,7 +6,7 @@ class ActsController < ApplicationController
     scope = filtered_scope
     render(json: { acts: scope.map(&:public_json) }) if scope
   end
-  def public_show = render(json: { act: Act.includes(:act_members, owner: :profile).where(status: "active").find(params[:id]).public_json })
+  def public_show = render(json: { act: public_visible(Act.includes(:act_members, owner: :profile).where(status: "active")).find(params[:id]).public_json })
 
   def index
     return unless authenticate!
@@ -83,7 +83,7 @@ class ActsController < ApplicationController
       render_error("Search filters must be plain text.", :bad_request, "INVALID_PARAMETER")
       return nil
     end
-    scope = Act.includes(:act_members, owner: :profile).where(status: "active").order(verified: :desc, updated_at: :desc)
+    scope = public_visible(Act.includes(:act_members, owner: :profile).where(status: "active")).order(verified: :desc, updated_at: :desc)
     if params[:q].present?
       q = "%#{ActiveRecord::Base.sanitize_sql_like(params[:q])}%"
       scope = scope.left_outer_joins(:act_members).where(<<~SQL.squish, q:).distinct
@@ -95,6 +95,9 @@ class ActsController < ApplicationController
     scope = scope.where("acts.city ILIKE ?", "%#{ActiveRecord::Base.sanitize_sql_like(params[:city])}%") if params[:city].present?
     scope.limit(100)
   end
+
+  # Same rule as talent: non-demo synthetic QA batches are only visible to synthetic viewers.
+  def public_visible(scope) = current_user&.synthetic_batch.present? ? scope : SyntheticQa::Demo.publicly_listed(scope.joins(:owner))
 
   def act_params
     raw = params.permit(:name, :actType, :tagline, :bio, :city, :lineupSize, :minFee, :maxFee, :currency, :feeBasis, :travelRadiusKm, :travelsNationally, :travelsInternationally, :techRiderUrl, :hospitalityRiderUrl, :promoUrl, :status, genres: [], languages: [], eventTypes: []).to_h.transform_keys { _1.underscore }

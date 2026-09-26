@@ -18,7 +18,10 @@ class SyntheticTwoSidedJourneyTest < ActionDispatch::IntegrationTest
     employer = other_job.employer
     employer_token = login(employer.email)
 
+    # Synthetic QA listings are only discoverable by synthetic viewers (hidden from the public).
     get "/api/jobs?q=QA"
+    assert_not_includes response.parsed_body.fetch("jobs").map { _1.fetch("id") }, other_job.id
+    get "/api/jobs?q=QA", headers: auth(candidate_token)
     assert_response :success
     assert_includes response.parsed_body.fetch("jobs").map { _1.fetch("id") }, other_job.id
 

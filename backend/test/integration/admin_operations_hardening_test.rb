@@ -21,7 +21,7 @@ class AdminOperationsHardeningTest < ActionDispatch::IntegrationTest
   test "grant-plan rejects malformed durations and admin targets" do
     post "/api/admin/users/#{@studio.id}/grant-plan", params: { planCode: "pro", days: "abc" }, headers: auth(@token), as: :json
     assert_response :bad_request
-    post "/api/admin/users/#{@studio.id}/grant-plan", params: { planCode: "pro", days: 0 }, headers: auth(@token), as: :json
+    post "/api/admin/users/#{@studio.id}/grant-plan", params: { planCode: "pro", days: ["30"] }, headers: auth(@token), as: :json
     assert_response :bad_request
     post "/api/admin/users/#{@admin.id}/grant-plan", params: { planCode: "pro" }, headers: auth(@token), as: :json
     assert_response :unprocessable_entity
