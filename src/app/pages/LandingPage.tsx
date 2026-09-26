@@ -3,6 +3,7 @@ import { ArrowRight, AudioLines, BadgeCheck, BriefcaseBusiness, CalendarDays, Ch
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { BrandMark } from '../components/BrandMark';
+import { SkipLink } from '../components/SkipLink';
 
 const formats = [['Jobs', BriefcaseBusiness], ['Gigs', Zap], ['Auditions', Mic2], ['Sessions', Headphones], ['Tours', MapPin], ['Collaborations', Users]] as const;
 const roles = [
@@ -16,6 +17,7 @@ const roles = [
 
 export default function LandingPage() {
   return <div className="min-h-screen overflow-hidden bg-slate-950 text-white">
+    <SkipLink />
     <header className="fixed inset-x-0 top-0 z-50 border-b border-white/10 bg-[#070813]/80 backdrop-blur-2xl">
       <div className="mx-auto flex h-[72px] max-w-7xl items-center justify-between px-5 md:px-6">
         <Link to="/" aria-label="Verse home"><BrandMark /></Link>

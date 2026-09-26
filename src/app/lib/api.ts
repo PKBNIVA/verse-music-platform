@@ -190,7 +190,15 @@ export async function api<T = any>(path: string, options: ApiOptions = {}): Prom
       }
 
       if (response.status === 204) return undefined as T;
-      const data = await response.json().catch(() => ({}));
+      // A success that is not JSON means the request never reached the API (for example the
+      // SPA's index.html served for /api/* when VITE_API_URL is missing). Treat it as an error
+      // instead of rendering empty data as if everything worked.
+      const isJson = /json/i.test(response.headers.get('content-type') || '');
+      const parsed = isJson ? await response.json().catch(() => undefined) : undefined;
+      if (response.ok && parsed === undefined) {
+        throw new ApiError('Verse received an unexpected response. Please try again shortly.', response.status, 'INVALID_RESPONSE', requestIdFor(response));
+      }
+      const data = parsed ?? {};
       const requestId = requestIdFor(response, data);
       if (response.status === 401) redirectAfterUnauthorized(path, token, skipAuthRedirect);
       if (!response.ok) {

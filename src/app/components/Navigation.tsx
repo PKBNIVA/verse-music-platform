@@ -9,6 +9,7 @@ import { apiGet } from '../lib/api';
 import { UNREAD_CHANGED_EVENT, useVisiblePolling } from '../lib/usePolling';
 import { ProductTour, TourLauncher } from './ProductTour';
 import { BrandMark } from './BrandMark';
+import { SkipLink } from './SkipLink';
 
 const UNREAD_POLL_MS = 30_000;
 
@@ -54,7 +55,7 @@ export function Navigation() {
   ];
   const handleLogout = async () => { navigate('/', {replace:true}); await logout(); };
 
-  return <>
+  return <><SkipLink />
     <ProductTour role={isJobSeeker ? 'jobseeker' : 'employer'} />
     <nav className="fixed top-0 z-50 w-full border-b border-white/10 bg-[#070813]/88 backdrop-blur-2xl" aria-label="Workspace navigation">
       <div className="mx-auto flex h-[72px] max-w-[1500px] items-center gap-4 px-4 md:px-6">
