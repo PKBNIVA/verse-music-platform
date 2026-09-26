@@ -5,17 +5,26 @@ import { transform } from 'esbuild';
 const source = await readFile(new URL('../src/app/lib/api.ts', import.meta.url), 'utf8');
 const { code } = await transform(source, { loader: 'ts', format: 'esm', target: 'es2022' });
 
-const storage = new Map();
-globalThis.sessionStorage = {
-  getItem: (key) => storage.get(key) ?? null,
-  setItem: (key, value) => storage.set(key, String(value)),
-  removeItem: (key) => storage.delete(key),
+const fakeStorage = () => {
+  const storage = new Map();
+  return {
+    getItem: (key) => storage.get(key) ?? null,
+    setItem: (key, value) => storage.set(key, String(value)),
+    removeItem: (key) => storage.delete(key),
+  };
 };
+globalThis.sessionStorage = fakeStorage();
+globalThis.localStorage = fakeStorage();
+// A token saved by an older build lives in this tab's sessionStorage.
+sessionStorage.setItem('verse_access_token', 'legacy-token');
 
 const redirects = [];
+const listeners = new Map();
 globalThis.window = {
   setTimeout,
   clearTimeout,
+  addEventListener: (type, handler) => listeners.set(type, handler),
+  removeEventListener: (type) => listeners.delete(type),
   location: {
     pathname: '/employer/messages',
     search: '?thread=42',
@@ -24,11 +33,32 @@ globalThis.window = {
 };
 
 const apiModule = await import(`data:text/javascript;base64,${Buffer.from(code).toString('base64')}`);
-const { apiDelete, apiGet, apiPost, ApiError, hasAccessToken, setAccessToken, uploadMedia } = apiModule;
+const { apiDelete, apiGet, apiPost, ApiError, hasAccessToken, onAccessTokenChange, setAccessToken, uploadMedia } = apiModule;
 
+// The legacy per-tab token is migrated to localStorage on first read so the session survives new tabs.
+assert.equal(hasAccessToken(), true);
+assert.equal(localStorage.getItem('verse_access_token'), 'legacy-token');
+assert.equal(sessionStorage.getItem('verse_access_token'), null);
+setAccessToken(null);
 assert.equal(hasAccessToken(), false);
 setAccessToken('stored-token');
+assert.equal(localStorage.getItem('verse_access_token'), 'stored-token');
 assert.equal(hasAccessToken(), true);
+
+// Sign-in and sign-out in another tab reach this tab through the storage event.
+const changes = [];
+const unsubscribe = onAccessTokenChange((signedIn) => changes.push(signedIn));
+const storageEvent = listeners.get('storage');
+localStorage.removeItem('verse_access_token');
+storageEvent({ key: 'verse_access_token', newValue: null, storageArea: localStorage });
+storageEvent({ key: 'unrelated', newValue: 'x', storageArea: localStorage });
+storageEvent({ key: 'verse_access_token', newValue: 'other', storageArea: sessionStorage });
+localStorage.setItem('verse_access_token', 'other-tab-token');
+storageEvent({ key: 'verse_access_token', newValue: 'other-tab-token', storageArea: localStorage });
+storageEvent({ key: null, newValue: null, storageArea: localStorage });
+assert.deepEqual(changes, [false, true, false]);
+unsubscribe();
+assert.equal(listeners.has('storage'), false);
 setAccessToken(null);
 
 // GET requests get one bounded retry for transient network failures.
@@ -102,6 +132,16 @@ globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Unavailable
 });
 await assert.rejects(apiGet('/jobs'), (error) => error instanceof ApiError && error.requestId === 'req-test-123');
 
+// A 401 for a token another tab has already replaced must not sign that newer session out.
+setAccessToken('old-token');
+globalThis.fetch = async () => {
+  localStorage.setItem('verse_access_token', 'new-token-from-other-tab');
+  return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: { 'content-type': 'application/json' } });
+};
+await assert.rejects(apiGet('/jobs'), (error) => error instanceof ApiError && error.status === 401);
+assert.equal(localStorage.getItem('verse_access_token'), 'new-token-from-other-tab');
+assert.deepEqual(redirects, []);
+
 // A 401 clears the stale session and redirects protected pages only once.
 setAccessToken('expired-token');
 globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -109,7 +149,7 @@ globalThis.fetch = async () => new Response(JSON.stringify({ error: 'Unauthorize
   headers: { 'content-type': 'application/json' },
 });
 await assert.rejects(apiGet('/me'), (error) => error instanceof ApiError && error.status === 401);
-assert.equal(sessionStorage.getItem('verse_access_token'), null);
+assert.equal(localStorage.getItem('verse_access_token'), null);
 assert.equal(sessionStorage.getItem('verse_return_to'), '/employer/messages?thread=42');
 assert.deepEqual(redirects, ['/auth/employer']);
 
@@ -142,5 +182,24 @@ globalThis.fetch = async (url, options) => {
 const file = new File(['audio'], 'demo song?.mp3', { type: 'audio/mpeg' });
 assert.equal((await uploadMedia(file)).url, '/uploads/demo.mp3');
 assert.equal(uploadHeaders.get('x-filename'), 'demo_song_.mp3');
+
+// Blocked site data: every storage access throws, but the session still works in memory.
+const blocked = { getItem() { throw new Error('blocked'); }, setItem() { throw new Error('blocked'); }, removeItem() { throw new Error('blocked'); } };
+globalThis.localStorage = blocked;
+globalThis.sessionStorage = blocked;
+const blockedModule = await import(`data:text/javascript;base64,${Buffer.from(`${code}\n// blocked storage`).toString('base64')}`);
+assert.equal(blockedModule.hasAccessToken(), false);
+blockedModule.setAccessToken('memory-token');
+assert.equal(blockedModule.hasAccessToken(), true);
+blockedModule.setAccessToken(null);
+assert.equal(blockedModule.hasAccessToken(), false);
+
+// Storage that reads but cannot write (full or read-only) must not hide the in-memory token.
+const readOnly = { getItem: () => null, setItem() { throw new Error('quota'); }, removeItem() {} };
+globalThis.localStorage = readOnly;
+globalThis.sessionStorage = readOnly;
+const readOnlyModule = await import(`data:text/javascript;base64,${Buffer.from(`${code}\n// read-only storage`).toString('base64')}`);
+readOnlyModule.setAccessToken('memory-token');
+assert.equal(readOnlyModule.hasAccessToken(), true);
 
 console.log('frontend request resilience smoke: ok');

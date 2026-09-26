@@ -1,4 +1,4 @@
-import {createBrowserRouter} from 'react-router';import React from 'react';import {ProtectedRoute} from './components/ProtectedRoute';import {PageLoading} from './components/ExperienceStates';
+import {createBrowserRouter} from 'react-router';import React from 'react';import {ProtectedRoute} from './components/ProtectedRoute';import {PageLoading} from './components/ExperienceStates';import {RouteErrorPage} from './components/RouteErrorPage';
 const L=(f:()=>Promise<any>)=>React.lazy(f);
 const LandingPage=L(()=>import('./pages/LandingPage'));
 const AuthPage=L(()=>import('./pages/AuthPage'));
@@ -49,7 +49,9 @@ const BandBuilder=L(()=>import('./pages/BandBuilder'));
 const Billing=L(()=>import('./pages/Billing'));
 const S=({children}:{children:React.ReactNode})=><React.Suspense fallback={<PageLoading/>}>{children}</React.Suspense>;
 const P=({roles,children}:{roles:any[];children:React.ReactNode})=><S><ProtectedRoute roles={roles}>{children}</ProtectedRoute></S>;
-export const router=createBrowserRouter([{path:'/',element:<S><LandingPage/></S>},
+// The pathless root route gives every page one error boundary: stale lazy chunks after a
+// redeploy reload once, other render errors show a branded recovery screen.
+export const router=createBrowserRouter([{errorElement:<RouteErrorPage/>,children:[{path:'/',element:<S><LandingPage/></S>},
 {path:'/pricing',element:<S><Pricing/></S>},
 {path:'/start',element:<S><IntentHub/></S>},
 {path:'/guide',element:<S><Guide/></S>},
@@ -119,4 +121,4 @@ export const router=createBrowserRouter([{path:'/',element:<S><LandingPage/></S>
 {path:'workspace',element:<P roles={['employer']}><Workspace/></P>}]},
 {path:'/admin',element:<P roles={['admin']}><AdminDashboard/></P>},
 {path:'/admin/tester',element:<P roles={['admin']}><AdminTester/></P>},
-{path:'*',element:<S><NotFound/></S>}]);
+{path:'*',element:<S><NotFound/></S>}]}]);

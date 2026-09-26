@@ -14,6 +14,7 @@ export default function Reviews() {
   const [rating, setRating] = useState(5);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const load = () =>
     apiGet<any>("/reviews").then((d) => {
       const eligible = d.eligibleEmployers || [];
@@ -30,6 +31,8 @@ export default function Reviews() {
   }, []);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (submitting) return;
+    setSubmitting(true);
     try {
       await apiPost("/reviews", { employerId, rating, title, body });
       setTitle("");
@@ -38,6 +41,8 @@ export default function Reviews() {
       await load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setSubmitting(false);
     }
   }
   return (
@@ -94,8 +99,13 @@ export default function Reviews() {
                   placeholder="Share a useful, factual experience…"
                   className="bg-black/20 border-white/15 min-h-28"
                 />
-                <Button className="w-full" disabled={!employerId}>
-                  Submit review
+                <Button
+                  type="submit"
+                  className="w-full"
+                  disabled={!employerId || submitting}
+                  aria-busy={submitting}
+                >
+                  {submitting ? "Submitting…" : "Submit review"}
                 </Button>
               </form>
             </CardContent>

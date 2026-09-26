@@ -19,13 +19,16 @@ export default function ActsManager() {
       maxFee: "",
       lineupSize: 1,
       ownerRole: "Band Leader",
-    });
+    }),
+    [creating, setCreating] = useState(false);
   const load = () => apiGet<any>("/acts/me").then((d) => setActs(d.acts || []));
   useEffect(() => {
     load();
     apiGet("/taxonomy").then(setTax);
   }, []);
   async function create() {
+    if (creating) return;
+    setCreating(true);
     try {
       await apiPost("/acts", {
         ...f,
@@ -38,10 +41,12 @@ export default function ActsManager() {
         lineupSize: Number(f.lineupSize) || 1,
       });
       toast.success("Bookable act created");
-      setF({ ...f, name: "", city: "", genres: "", minFee: "", maxFee: "" });
+      setF((current: any) => ({ ...current, name: "", city: "", genres: "", minFee: "", maxFee: "" }));
       load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setCreating(false);
     }
   }
   async function addMember(act: any) {
@@ -154,10 +159,11 @@ export default function ActsManager() {
               <Button
                 className="w-full"
                 onClick={create}
-                disabled={!f.name.trim()}
+                disabled={creating || !f.name.trim()}
+                aria-busy={creating}
               >
                 <Music size={16} className="mr-2" />
-                Create bookable act
+                {creating ? "Creating…" : "Create bookable act"}
               </Button>
             </CardContent>
           </Card>

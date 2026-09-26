@@ -14,7 +14,9 @@ export default function UrgentRequests() {
     [city, setCity] = useState(""),
     [role, setRole] = useState(""),
     [responses, setResponses] = useState<Record<string, any[]>>({}),
-    [expanded, setExpanded] = useState<string | null>(null);
+    [expanded, setExpanded] = useState<string | null>(null),
+    // The mutation in flight ("create" or a request id); others wait so nothing is submitted twice.
+    [pending, setPending] = useState<string | null>(null);
   async function load() {
     const p = new URLSearchParams();
     if (city) p.set("city", city);
@@ -26,6 +28,7 @@ export default function UrgentRequests() {
     load();
   }, []);
   async function create() {
+    if (pending) return;
     const title = prompt("Urgent requirement title");
     if (!title) return;
     const roleName = prompt("Role needed, e.g. Drummer / FOH Engineer");
@@ -36,18 +39,23 @@ export default function UrgentRequests() {
       "Start date/time in ISO or local format, e.g. 2026-10-04T18:00",
     );
     if (!startAt) return;
+    setPending("create");
     try {
       await apiPost("/urgent-requests", { title, roleName, city, startAt });
       toast.success("Urgent request published");
       load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setPending(null);
     }
   }
   async function respond(r: any) {
+    if (pending) return;
     const message = prompt("Short availability note");
     if (message === null) return;
     const rate = prompt("Your rate (optional)");
+    setPending(r.id);
     try {
       await apiPost(`/urgent-requests/${r.id}/respond`, {
         message,
@@ -57,6 +65,8 @@ export default function UrgentRequests() {
       load();
     } catch (e: any) {
       toast.error(e.message);
+    } finally {
+      setPending(null);
     }
   }
   async function viewResponses(id: string) {
@@ -94,9 +104,13 @@ export default function UrgentRequests() {
               city and exact time.
             </p>
           </div>
-          <Button onClick={create}>
+          <Button
+            onClick={create}
+            disabled={pending !== null}
+            aria-busy={pending === "create"}
+          >
             <Zap size={16} className="mr-2" />
-            Post urgent need
+            {pending === "create" ? "Publishing…" : "Post urgent need"}
           </Button>
         </div>
         <div className="grid md:grid-cols-[1fr_1fr_auto] gap-3 mt-7">
@@ -151,8 +165,14 @@ export default function UrgentRequests() {
                     <Button
                       variant={r.myResponse ? "outline" : "default"}
                       onClick={() => respond(r)}
+                      disabled={pending !== null}
+                      aria-busy={pending === r.id}
                     >
-                      {r.myResponse ? "Update response" : "I’m available"}
+                      {pending === r.id
+                        ? "Sending…"
+                        : r.myResponse
+                          ? "Update response"
+                          : "I’m available"}
                     </Button>
                   )}
                 </div>
