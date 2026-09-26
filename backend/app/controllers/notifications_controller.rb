@@ -1,5 +1,5 @@
 class NotificationsController < ApplicationController
-  before_action -> { authenticate! }
+  before_action -> { authenticate! }, except: :unsubscribe
 
   def index
     scope = current_user.notifications
@@ -24,6 +24,30 @@ class NotificationsController < ApplicationController
     now = Time.current
     updated = current_user.notifications.where(read_at: nil).update_all(read_at: now, updated_at: now)
     render json: { ok: true, updated: }
+  end
+
+  def preferences
+    render json: { emailNotifications: NotificationEmail.opted_in?(current_user) }
+  end
+
+  def update_preferences
+    value = params[:emailNotifications]
+    return render_error("emailNotifications must be true or false.", :bad_request, "INVALID_PREFERENCE") unless [true, false].include?(value)
+
+    profile = current_user.profile || current_user.create_profile!
+    profile.update!(email_notifications: value)
+    render json: { emailNotifications: profile.email_notifications }
+  end
+
+  # One-click unsubscribe from a notification email: no sign-in, the signed token names the
+  # user. GET (link) and POST (RFC 8058 List-Unsubscribe-Post) both turn emails off.
+  def unsubscribe
+    user = NotificationEmail.user_for_unsubscribe_token(params[:token])
+    return render_error("This unsubscribe link is invalid.", :bad_request, "INVALID_TOKEN") unless user
+
+    (user.profile || user.create_profile!).update!(email_notifications: false)
+    Rails.logger.info({ event: "notification_email_unsubscribed", userId: user.id }.to_json)
+    render json: { ok: true, emailNotifications: false }
   end
 
   private

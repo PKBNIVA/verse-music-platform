@@ -8,6 +8,7 @@ import {useAuth} from '../lib/authContext';
 import {Card, CardContent} from '../components/ui/card';
 import {Button} from '../components/ui/button';
 import {announceUnreadChanged} from '../lib/usePolling';
+import {Switch} from '../components/ui/switch';
 
 type Role = 'jobseeker' | 'employer';
 type Item = {id: string; type?: string; title?: string; body?: string; link?: string | null; readAt?: string | null; createdAt: string};
@@ -64,6 +65,26 @@ export default function Notifications() {
   };
   useEffect(() => { void load(); }, []);
 
+  // null until loaded; saving is optimistic and rolls back on failure.
+  const [emailOn, setEmailOn] = useState<boolean | null>(null);
+  const [savingPref, setSavingPref] = useState(false);
+  useEffect(() => { apiGet<any>('/notifications/preferences').then(d => setEmailOn(d.emailNotifications !== false)).catch(() => setEmailOn(null)); }, []);
+  async function toggleEmail(next: boolean) {
+    if (savingPref) return;
+    const previous = emailOn;
+    setEmailOn(next); setSavingPref(true);
+    try {
+      const d = await apiPatch<any>('/notifications/preferences', {emailNotifications: next});
+      setEmailOn(d.emailNotifications !== false);
+      toast.success(next ? 'Notification emails turned on' : 'Notification emails turned off');
+    } catch (e: any) {
+      setEmailOn(previous);
+      toast.error(e.message || 'Unable to save your email preference');
+    } finally {
+      setSavingPref(false);
+    }
+  }
+
   async function read(n: Item) {
     if (n.readAt) return;
     const readAt = new Date().toISOString();
@@ -90,6 +111,14 @@ export default function Notifications() {
         <div><h1 className="text-4xl font-bold">Notifications</h1><p className="text-slate-400 mt-2">Hiring updates, bookings, moderation, verification and messages.</p></div>
         {unread > 0 && <Button variant="outline" size="sm" onClick={() => void readAll()} disabled={markingAll} aria-busy={markingAll}>Mark all as read</Button>}
       </div>
+      <Card className="bg-white/[.035] border-white/10 mb-6"><CardContent className="p-5 flex items-start justify-between gap-4">
+        <div>
+          <label htmlFor="email-notifications" className="font-semibold cursor-pointer">Email me about messages, bookings and application updates</label>
+          <p id="email-notifications-hint" className="text-sm text-slate-400 mt-1">Sign-in codes, email verification and password emails are always sent.</p>
+        </div>
+        <Switch id="email-notifications" aria-describedby="email-notifications-hint" checked={emailOn ?? false} disabled={emailOn === null || savingPref} aria-busy={savingPref}
+          onCheckedChange={v => void toggleEmail(v)} className="mt-1"/>
+      </CardContent></Card>
       <div className="space-y-3">
         {loading ? <div className="text-slate-400 text-center py-12" role="status">Loading notifications…</div>
           : error ? <div className="text-center py-12" role="alert"><p className="text-rose-300">{error}</p><Button variant="outline" className="mt-4" onClick={() => void load()}>Try again</Button></div>

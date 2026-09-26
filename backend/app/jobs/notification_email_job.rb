@@ -10,6 +10,7 @@ class NotificationEmailJob < ApplicationJob
   def perform(user_id, template, params = {})
     user = User.find_by(id: user_id)
     return log_skip("recipient_missing", template) unless user
+    return log_skip("recipient_opted_out", template) unless NotificationEmail.opted_in?(user)
     return log_skip("recipient_ineligible", template) unless NotificationEmail.deliverable_to?(user)
 
     content = NotificationEmail.render(template, params, user)

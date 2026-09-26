@@ -65,6 +65,53 @@ class NotificationEmailJobTest < ActiveJob::TestCase
     assert_no_enqueued_jobs # skips are final, not retried
   end
 
+  test "every notification email carries an unsubscribe link and List-Unsubscribe headers for each provider" do
+    token_for = ->(url) { CGI.unescape(url[/token=([^>&"\s]+)/, 1]) }
+    api = { "API_HOST" => "https://api.verse.example", "FRONTEND_URL" => "https://verse.example" }
+
+    sent = []
+    with_env(api.merge("BREVO_API_KEY" => "k", "BREVO_SENDER_EMAIL" => "hello@verse.example")) do
+      Faraday.stub(:post, capture(sent)) { NotificationEmailJob.perform_now(@user.id, "new_message", { "name" => "A" }) }
+    end
+    _url, body = sent.sole
+    assert_equal "List-Unsubscribe=One-Click", body.dig("headers", "List-Unsubscribe-Post")
+    header = body.dig("headers", "List-Unsubscribe")
+    assert_match %r{\A<https://api\.verse\.example/api/notifications/unsubscribe\?token=[^>]+>\z}, header
+    assert_equal @user, NotificationEmail.user_for_unsubscribe_token(token_for.call(header))
+    assert_includes body["htmlContent"], "https://verse.example/unsubscribe?token="
+    assert_includes body["textContent"], "Turn off these emails: https://verse.example/unsubscribe?token="
+
+    sent.clear
+    with_env(api.merge("RESEND_API_KEY" => "r", "EMAIL_FROM" => "Verse <hello@verse.example>")) do
+      Faraday.stub(:post, capture(sent)) { NotificationEmailJob.perform_now(@user.id, "booking_status", { "act" => "A", "status" => "viewed" }) }
+    end
+    url, body = sent.sole
+    assert_equal "https://api.resend.com/emails", url
+    assert_equal "List-Unsubscribe=One-Click", body.dig("headers", "List-Unsubscribe-Post")
+
+    # Without API_HOST there is no POST endpoint to advertise: only the web page.
+    sent.clear
+    with_env("EMAIL_DELIVERY_WEBHOOK" => "https://email-hook.example.invalid/send", "API_HOST" => nil, "FRONTEND_URL" => "https://verse.example") do
+      Faraday.stub(:post, capture(sent)) { NotificationEmailJob.perform_now(@user.id, "application_status", { "job" => "Gig", "status" => "Offer" }) }
+    end
+    headers = sent.sole.last.dig("data", "headers")
+    assert_match %r{\A<https://verse\.example/unsubscribe\?token=}, headers["List-Unsubscribe"]
+    assert_nil headers["List-Unsubscribe-Post"]
+  end
+
+  test "opted-out recipients are skipped at delivery time; transactional email is not" do
+    @user.create_profile!(email_notifications: false)
+    sent = []
+    with_env("EMAIL_DELIVERY_WEBHOOK" => "https://email-hook.example.invalid/send") do
+      Faraday.stub(:post, capture(sent)) do
+        NotificationEmailJob.perform_now(@user.id, "new_message", { "name" => "A" })
+        assert_empty sent
+        EmailDeliveryJob.perform_now(@user.id, "reset_password", EmailDeliveryJob.seal("https://verse.example/reset-password?token=t"))
+      end
+    end
+    assert_equal ["reset_password"], sent.map { _2["template"] }
+  end
+
   test "retries provider outages" do
     with_env("EMAIL_DELIVERY_WEBHOOK" => "https://email-hook.example.invalid/send") do
       Faraday.stub(:post, ->(*) { Response.new(503, "down") }) do

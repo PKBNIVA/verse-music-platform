@@ -39,6 +39,7 @@ const LegalPage=L(()=>import('./pages/public/LegalPage'));
 const UrgentRequests=L(()=>import('./pages/UrgentRequests'));
 const Availability=L(()=>import('./pages/Availability'));
 const VerifyEmail=L(()=>import('./pages/VerifyEmail'));
+const Unsubscribe=L(()=>import('./pages/Unsubscribe'));
 const ForgotPassword=L(()=>import('./pages/ForgotPassword'));
 const ResetPassword=L(()=>import('./pages/ResetPassword'));
 const Workspace=L(()=>import('./pages/Workspace'));
@@ -73,6 +74,7 @@ export const router=createBrowserRouter([{errorElement:<RouteErrorPage/>,childre
 {path:'/accessibility',element:<S><LegalPage/></S>},
 {path:'/contact',element:<S><LegalPage/></S>},
 {path:'/verify-email',element:<S><VerifyEmail/></S>},
+{path:'/unsubscribe',element:<S><Unsubscribe/></S>},
 {path:'/forgot-password',element:<S><ForgotPassword/></S>},
 {path:'/reset-password',element:<S><ResetPassword/></S>},
 {path:'/auth/:userType',element:<S><AuthPage/></S>},

@@ -128,7 +128,7 @@ class EmailDelivery
   # --- Notification emails (messaging/notifications area) -----------------------
   # Sends content already rendered by NotificationEmail through the configured
   # provider. Same result/raise_errors contract as .call; logs never include content.
-  def self.deliver_rendered(to:, template:, subject:, html:, text:, raise_errors: false)
+  def self.deliver_rendered(to:, template:, subject:, html:, text:, headers: {}, raise_errors: false)
     return { delivered: false, reason: "Recipient unavailable" } if to.blank?
 
     provider_name = provider
@@ -141,13 +141,13 @@ class EmailDelivery
       when "brevo"
         request.headers["api-key"] = ENV.fetch("BREVO_API_KEY")
         request.body = { sender: { name: ENV.fetch("BREVO_SENDER_NAME", "Verse"), email: ENV.fetch("BREVO_SENDER_EMAIL") },
-          to: [{ email: to }], subject:, htmlContent: html, textContent: text }.to_json
+          to: [{ email: to }], subject:, htmlContent: html, textContent: text, headers: headers.presence }.compact.to_json
       when "resend"
         request.headers["Authorization"] = "Bearer #{ENV.fetch('RESEND_API_KEY')}"
-        request.body = { from: ENV.fetch("EMAIL_FROM"), to: [to], subject:, html:, text: }.to_json
+        request.body = { from: ENV.fetch("EMAIL_FROM"), to: [to], subject:, html:, text:, headers: headers.presence }.compact.to_json
       else
         request.headers["Authorization"] = "Bearer #{ENV['EMAIL_DELIVERY_TOKEN']}" if ENV["EMAIL_DELIVERY_TOKEN"].present?
-        request.body = { to:, template:, data: { subject:, html:, text: } }.to_json
+        request.body = { to:, template:, data: { subject:, html:, text:, headers: headers.presence }.compact }.to_json
       end
       request.options.open_timeout = 5
       request.options.timeout = 10

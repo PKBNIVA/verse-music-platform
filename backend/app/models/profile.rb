@@ -7,6 +7,6 @@ class Profile < ApplicationRecord
   validates :website, :portfolio_url, :company_website, safe_http_url: true, allow_blank: true
 
   def api_json
-    attributes.except("user_id", "created_at", "updated_at").transform_keys { _1.camelize(:lower) }
+    attributes.except("user_id", "created_at", "updated_at", "email_notifications").transform_keys { _1.camelize(:lower) }
   end
 end

@@ -275,6 +275,97 @@ class MessagingNotificationsTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "email preference is read and updated by the signed-in user and suppresses every notification email kind" do
+    owner = create_user("Optout Owner", "jobseeker", verified_email: true)
+    requester = create_user("Optout Requester", "employer", verified_email: true)
+
+    get "/api/notifications/preferences", headers: auth(owner)
+    assert_equal({ "emailNotifications" => true }, response.parsed_body)
+    [nil, "false", 0, "no"].each do |value|
+      patch "/api/notifications/preferences", params: { emailNotifications: value }, headers: auth(owner), as: :json
+      assert_response :bad_request
+      assert_equal "INVALID_PREFERENCE", response.parsed_body["code"]
+    end
+    patch "/api/notifications/preferences", params: { emailNotifications: false }, headers: auth(owner), as: :json
+    assert_equal({ "emailNotifications" => false }, response.parsed_body)
+    assert_not owner.profile.reload.email_notifications
+    get "/api/me", headers: auth(owner)
+    assert_not response.parsed_body["user"].key?("emailNotifications"), "not part of public profile JSON"
+    get "/api/notifications/preferences"
+    assert_response :unauthorized
+
+    with_env("EMAIL_DELIVERY_WEBHOOK" => "https://email-hook.example.invalid/send") do
+      booking = create_booking(owner:, requester:)
+      conversation = Conversation.create!(candidate: owner, employer: requester)
+      job = create_job(requester)
+      application = Application.create!(job:, candidate: owner)
+
+      Notifier.booking_enquiry(booking)
+      Notifier.booking_quote(create_booking(owner: requester, requester: owner))
+      post "/api/bookings/#{booking.id}/status", params: { status: "negotiating" }, headers: auth(requester), as: :json
+      post "/api/conversations/#{conversation.id}/messages", params: { body: "hi" }, headers: auth(requester), as: :json
+      patch "/api/employer/applications/#{application.id}", params: { status: "Shortlisted" }, headers: auth(requester), as: :json
+      assert_response :success
+      assert_operator owner.notifications.count, :>=, 4, "in-app notifications still arrive"
+      assert_no_enqueued_jobs(only: NotificationEmailJob)
+
+      # The other side kept the default and is still emailed.
+      post "/api/bookings/#{booking.id}/status", params: { status: "declined" }, headers: auth(owner), as: :json
+      assert_enqueued_with(job: NotificationEmailJob, args: [requester.id, "booking_status", { "act" => booking.act.name, "status" => "declined" }])
+
+      clear_enqueued_jobs
+      patch "/api/notifications/preferences", params: { emailNotifications: true }, headers: auth(owner), as: :json
+      fresh = Conversation.create!(candidate: owner, employer: requester, job:)
+      post "/api/conversations/#{fresh.id}/messages", params: { body: "again" }, headers: auth(requester), as: :json
+      assert_enqueued_jobs 1, only: NotificationEmailJob
+    end
+  end
+
+  test "one-click unsubscribe accepts only a valid, purpose-scoped token and needs no sign-in" do
+    user = create_user("Unsub User", "employer", verified_email: true)
+    other = create_user("Unsub Other", "jobseeker", verified_email: true)
+    token = NotificationEmail.unsubscribe_token(user)
+
+    tampered = token.sub(/.\z/) { _1 == "a" ? "b" : "a" }
+    other_purpose = NotificationEmail.unsubscribe_verifier.generate(user.id, purpose: :password_reset)
+    signed_id = user.signed_id(purpose: NotificationEmail::UNSUBSCRIBE_PURPOSE)
+    other_verifier = Rails.application.message_verifier("somewhere-else").generate(user.id, purpose: NotificationEmail::UNSUBSCRIBE_PURPOSE)
+    [nil, "", "garbage", tampered, other_purpose, signed_id, other_verifier, "#{token}x"].each do |bad|
+      post "/api/notifications/unsubscribe", params: { token: bad }, as: :json
+      assert_response :bad_request, bad.inspect
+      assert_equal "INVALID_TOKEN", response.parsed_body["code"]
+    end
+    assert user.profile.reload.email_notifications
+
+    # RFC 8058: the provider POSTs "List-Unsubscribe=One-Click" as a form to the URL carrying the token.
+    post "/api/notifications/unsubscribe?token=#{CGI.escape(token)}", params: { "List-Unsubscribe" => "One-Click" }
+    assert_response :success
+    assert_equal({ "ok" => true, "emailNotifications" => false }, response.parsed_body)
+    assert_not user.profile.reload.email_notifications
+    assert other.profile.reload.email_notifications, "only the named user"
+
+    user.profile.update!(email_notifications: true)
+    get "/api/notifications/unsubscribe", params: { token: }
+    assert_response :success
+    assert_not user.profile.reload.email_notifications
+    get "/api/notifications/unsubscribe", params: { token: }
+    assert_response :success, "idempotent"
+
+    admin = User.create!(name: "Unsub Admin", email: "unsub-admin-#{SecureRandom.hex(3)}@example.com", password: "StrongPass123!", role: "admin", status: "active")
+    post "/api/notifications/unsubscribe", params: { token: NotificationEmail.unsubscribe_token(admin) }, as: :json
+    assert_response :success
+    assert_not admin.reload.profile.email_notifications, "profile-less accounts get a row"
+  end
+
+  test "transactional emails ignore the notification opt-out" do
+    user = create_user("Transactional User", "jobseeker", verified_email: true)
+    user.profile.update!(email_notifications: false)
+    with_env("EMAIL_DELIVERY_WEBHOOK" => "https://email-hook.example.invalid/send") do
+      post "/api/auth/forgot-password", params: { email: user.email }, as: :json
+      assert_enqueued_jobs 1, only: EmailDeliveryJob
+    end
+  end
+
   private
 
   def create_user(name, role, verified_email: false)
