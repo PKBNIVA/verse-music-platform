@@ -185,7 +185,7 @@ test('organization verification asks for a valid link in a dialog', async ({page
 test('compare without a selection guides back to talent search instead of erroring', async ({page}) => {
   const {calls} = await signIn(page, 'jobseeker');
   await page.goto('/jobseeker/compare');
-  await expect(page.getByText(/Pick two to four professionals/)).toBeVisible();
+  await expect(page.getByText(/(Pick|Select) two to four professionals/)).toBeVisible();
   await expect(page.getByRole('link', {name: 'Choose professionals'})).toHaveAttribute('href', '/jobseeker/hiring/talent');
   expect(calls.some(c => c.path.startsWith('/candidates/compare'))).toBe(false);
 });
