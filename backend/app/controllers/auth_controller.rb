@@ -8,7 +8,8 @@ class AuthController < ApplicationController
   MAX_LIVE_SESSIONS = 10
   OTP_REQUEST_PERIOD = 1.hour
   OTP_REQUESTS_PER_EMAIL = 5
-  OTP_REQUESTS_PER_IP = 5
+  # Mobile carriers put many users behind one IP (CGNAT); the per-email limit is the real guard.
+  OTP_REQUESTS_PER_IP = 30
   OTP_VERIFY_FAILURE_PERIOD = 15.minutes
   # Per-code attempts are capped by SignInCode::MAX_ATTEMPTS; this IP budget stops
   # one client spraying guesses across many addresses' codes.
