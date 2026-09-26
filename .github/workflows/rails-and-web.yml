@@ -23,6 +23,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Audit production npm dependencies
+        run: npm audit --omit=dev --audit-level=high
       - run: npm run build
       - run: npm run test:all
 
@@ -55,9 +57,34 @@ jobs:
           ruby-version: 3.3.6
           bundler-cache: true
           working-directory: backend
-      - run: bin/rails db:prepare
+      - name: Run every migration on an empty database
+        run: bin/rails db:migrate
+      - name: Check db/schema.rb matches the migrations
+        run: |
+          if ! git diff --exit-code -- db/schema.rb; then
+            echo "::error file=backend/db/schema.rb::db/schema.rb is out of date. Run bin/rails db:migrate locally and commit the regenerated schema."
+            exit 1
+          fi
       - run: bin/rails test
       - run: bin/rails zeitwerk:check
+
+  security:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: 3.3.6
+          bundler-cache: true
+          working-directory: backend
+      # Fails on any warning not listed in config/brakeman.ignore (each entry carries a review note).
+      - name: Brakeman static analysis
+        run: bundle exec brakeman --no-pager --exit-on-warn --exit-on-error
+      - name: Audit gems against ruby-advisory-db
+        run: bundle exec bundler-audit check --update
 
   integrated-journeys:
     runs-on: ubuntu-latest
