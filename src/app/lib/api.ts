@@ -264,6 +264,17 @@ export const apiPut = <T = any>(path: string, body?: unknown, options: ApiOption
 export const apiPatch = <T = any>(path: string, body?: unknown, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'PATCH', body: JSON.stringify(body ?? {}) });
 export const apiDelete = <T = any>(path: string, options: ApiOptions = {}) => api<T>(path, { ...options, method: 'DELETE' });
 
+/** Email sign-in codes. The response is identical whether or not an account exists. */
+export interface SignInCodeRequest { email: string; name?: string; role?: 'jobseeker' | 'employer' }
+export interface SignInCodeResponse {
+  ok: boolean;
+  message: string;
+  expiresIn: number;
+  /** Local QA only: returned outside production when no email provider is configured. */
+  debugCode?: string;
+}
+export const requestSignInCode = (payload: SignInCodeRequest) => apiPost<SignInCodeResponse>('/auth/otp/request', payload);
+
 // ---- Uploads -------------------------------------------------------------
 // Mirrors backend MediaTypeSniffer / Upload::MAX_SIZE. The server re-checks the real
 // bytes; these checks only give the user an immediate, specific error.

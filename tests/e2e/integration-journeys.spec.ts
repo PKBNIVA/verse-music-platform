@@ -15,6 +15,7 @@ test.describe('real frontend and Rails journeys', () => {
       await page.getByRole('button', {name: /create .* account/i}).click();
       await page.getByLabel(role === 'employer' ? 'Your or company name' : 'Full name').fill(name);
       await page.getByLabel('Email').fill(email);
+      await page.getByRole('button', {name: 'Use password instead'}).click();
       await page.getByLabel('Password', {exact: true}).fill(password);
       await page.getByRole('button', {name: 'Create account', exact: true}).click();
       await expect(page).toHaveURL(new RegExp(`${profilePath}$`));
@@ -56,6 +57,7 @@ test.describe('real frontend and Rails journeys', () => {
 
       await page.goto(`/auth/${role}`);
       await page.getByLabel('Email').fill(email);
+      await page.getByRole('button', {name: 'Use password instead'}).click();
       await page.getByLabel('Password', {exact: true}).fill(password);
       await page.getByRole('button', {name: 'Sign in'}).click();
       await expect.poll(() => new URL(page.url()).pathname).toBe(`/${role}`);

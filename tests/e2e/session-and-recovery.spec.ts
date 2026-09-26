@@ -96,6 +96,7 @@ test('signing out in one tab signs out the other, and signing back in restores i
 
   await active.goto('/auth/jobseeker');
   await active.getByLabel('Email').fill('qa@example.invalid');
+  await active.getByRole('button', {name: 'Use password instead'}).click();
   await active.getByLabel('Password', {exact: true}).fill('correct horse battery');
   await active.getByRole('button', {name: 'Sign in', exact: true}).click();
   await expect(active).toHaveURL(/\/jobseeker$/);
@@ -172,6 +173,7 @@ test('signing in from a public opportunity returns to that job', async ({page}) 
   await expect(page).toHaveURL(/\/auth\/jobseeker$/);
 
   await page.getByLabel('Email').fill('qa@example.invalid');
+  await page.getByRole('button', {name: 'Use password instead'}).click();
   await page.getByLabel('Password', {exact: true}).fill('correct horse battery');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
   await expect(page).toHaveURL(/\/jobseeker\/jobs\/job-1$/);

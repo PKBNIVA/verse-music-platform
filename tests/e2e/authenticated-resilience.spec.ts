@@ -110,6 +110,7 @@ test('sign-in accepts existing passwords shorter than the registration minimum',
 
   await page.goto('/auth/jobseeker');
   await page.getByLabel('Email').fill('legacy@example.invalid');
+  await page.getByRole('button', {name: 'Use password instead'}).click();
   await page.getByLabel('Password', {exact: true}).fill('short1!');
   await page.getByRole('button', {name: 'Sign in', exact: true}).click();
 
