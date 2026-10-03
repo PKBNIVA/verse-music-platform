@@ -233,6 +233,7 @@ class ApiMatrixTest < ActionDispatch::IntegrationTest
     [:get, "/api/search?q=mix", :public, { keys: %w[results interpretedAs status] }],
     [:get, "/api/search/status", :public, { keys: %w[provider healthy] }],
     [:get, "/api/search/suggest?q=mix", :public, { keys: %w[suggestions] }],
+    [:post, "/api/cable/ticket", :any, { ok: [201], keys: %w[ticket expiresIn url] }],
     [:post, "/api/uploads/presign", :any, { params: { filename: "a.mp3", contentType: "audio/mpeg", size: 100 }, bad: { contentType: "text/html", size: 5 }, bad_status: [422], keys: %w[mode uploadUrl] }],
     [:put, "/api/uploads/local", :any, { ok: [422], note: "JSON body is not an allowed media type" }],
     [:get, "/api/public/talent", :public, { keys: %w[talent] }],

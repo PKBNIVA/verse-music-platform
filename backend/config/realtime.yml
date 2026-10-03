@@ -1,0 +1,20 @@
+# Real-time updates over Action Cable (WebSockets at /cable). How to change: docs/ops/realtime.md.
+# The adapter is chosen in config/cable.yml: Redis when REDIS_URL is set, otherwise Solid Cable on
+# the existing Postgres (no new infrastructure).
+
+# Pages open the socket only when this is true (GET /me and sign-in responses carry it); false
+# leaves every page polling at its old pace.
+enabled: true
+
+# A browser asks POST /api/cable/ticket for a signed ticket, then opens the socket with it within
+# this many seconds. WebSockets cannot send the Authorization header, so the bearer token never
+# goes in a URL.
+ticket_ttl_seconds: 60
+# Tickets per signed-in user per minute (each reconnect asks for one).
+tickets_per_minute: 30
+# Action Cable's worker threads per server process (each may hold a database connection; counted
+# in config/database.yml's pool).
+worker_pool_size: 4
+# Solid Cable: how often each process polls the messages table, and how long rows are kept.
+solid_cable_polling_seconds: 0.1
+solid_cable_retention_hours: 24

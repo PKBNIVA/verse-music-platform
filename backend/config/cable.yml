@@ -1,0 +1,12 @@
+# Action Cable adapter. Production uses Redis when REDIS_URL is set (shared with the cache) and
+# Solid Cable on the existing Postgres otherwise; see docs/ops/realtime.md for switching.
+<% realtime = YAML.safe_load_file(Rails.root.join("config/realtime.yml")) %>
+<% solid = { "adapter" => "solid_cable", "polling_interval" => "#{realtime.fetch('solid_cable_polling_seconds')}.seconds",
+             "message_retention" => "#{realtime.fetch('solid_cable_retention_hours')}.hours" } %>
+development:
+<%= (ENV["REDIS_URL"].present? ? { "adapter" => "redis", "url" => ENV["REDIS_URL"], "channel_prefix" => "musilynk_development" } : solid).to_yaml.sub("---\n", "").gsub(/^/, "  ") %>
+test:
+  adapter: test
+
+production:
+<%= (ENV["REDIS_URL"].present? ? { "adapter" => "redis", "url" => ENV["REDIS_URL"], "channel_prefix" => "musilynk_production" } : solid).to_yaml.sub("---\n", "").gsub(/^/, "  ") %>

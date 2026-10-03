@@ -4,8 +4,11 @@ default: &default
   # Puma threads + in-process GoodJob threads + headroom for the GoodJob
   # notifier/scheduler and ad-hoc connections.
 <% require Rails.root.join("config/job_queues").to_s %>
-  # Job threads come from the GoodJob pools in config/job_queues.yml (JobQueues.thread_count).
-  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5).to_i + JobQueues.thread_count + 3 %>
+  # Job threads come from the GoodJob pools in config/job_queues.yml (JobQueues.thread_count);
+  # Action Cable's workers come from config/realtime.yml (worker_pool_size), plus one connection
+  # for Solid Cable's listener.
+<% realtime_workers = YAML.safe_load_file(Rails.root.join("config/realtime.yml")).fetch("worker_pool_size").to_i + 1 %>
+  pool: <%= ENV.fetch("RAILS_MAX_THREADS", 5).to_i + JobQueues.thread_count + realtime_workers + 3 %>
   url: <%= ENV["DATABASE_URL"] %>
   # statement_timeout / lock_timeout per process kind (web, GoodJob worker, db:* tasks);
   # see config/database_session_settings.rb for the defaults and env overrides.

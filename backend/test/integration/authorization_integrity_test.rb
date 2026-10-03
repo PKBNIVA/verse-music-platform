@@ -358,9 +358,11 @@ class AuthorizationIntegrityTest < ActionDispatch::IntegrationTest
     assert_equal ["/jobseeker/jobs/#{job.id}"], candidate.notifications.where(kind: "job_alert").pluck(:link)
   end
 
-  test "database pool covers web and job threads" do
+  test "database pool covers web, job and real-time threads" do
     config = ActiveRecord::Base.configurations.configs_for(env_name: "test").first.configuration_hash
-    expected = ENV.fetch("RAILS_MAX_THREADS", 5).to_i + JobQueues.thread_count + 3
+    # Action Cable's workers (config/realtime.yml) plus Solid Cable's listener also hold connections.
+    realtime = Rails.application.config.action_cable.worker_pool_size + 1
+    expected = ENV.fetch("RAILS_MAX_THREADS", 5).to_i + JobQueues.thread_count + realtime + 3
     assert_equal expected, config[:pool].to_i
   end
 

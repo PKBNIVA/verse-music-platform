@@ -46,7 +46,7 @@ class AdminSecondFactorTest < ActionDispatch::IntegrationTest
 
     complete(challenge["challengeToken"], code)
     assert_response :success
-    assert_equal %w[accessToken user], response.parsed_body.keys.sort
+    assert_equal %w[accessToken realtime user], response.parsed_body.keys.sort # realtime: R2 live updates
     assert_equal @admin.id, response.parsed_body.dig("user", "id")
     assert @admin.reload.last_login_at
     assert_equal({ "method" => "password", "secondFactor" => "email_code" }, AuditLog.where(action: "auth.login").last.metadata)

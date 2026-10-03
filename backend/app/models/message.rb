@@ -3,6 +3,8 @@ class Message < ApplicationRecord
   belongs_to :conversation, touch: true
   belongs_to :sender, class_name: "User"
   validates :body, presence: true, length: { maximum: 5_000 }
+  # Live delivery to the thread and the recipient's badge (Realtime; polling is the fallback).
+  after_create_commit { Realtime.message_created(self) }
 
   # Messages that matched a scam pattern when sent (see ScamSignals). Matches the partial indexes.
   scope :flagged, -> { where("messages.safety_flags <> '{}'") }

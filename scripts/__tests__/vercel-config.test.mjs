@@ -176,6 +176,17 @@ describe('vercel.json crawler routing and headers', () => {
     expect(csp.value).toMatch(/script-src 'self'/);
   });
 
+  it('lets the app open the real-time socket on the API host, and no other socket', () => {
+    const csp = config.headers
+      .flatMap((entry) => entry.headers)
+      .find((header) => header.key === 'Content-Security-Policy');
+    const connect = csp.value.match(/connect-src ([^;]*)/)[1].split(' ');
+    expect(connect).toContain('wss://musilynk-api-production.up.railway.app');
+    expect(connect.filter((source) => source.startsWith('ws'))).toEqual([
+      'wss://musilynk-api-production.up.railway.app',
+    ]);
+  });
+
   it('never marks an asset immutable unless it is a hashed build file', () => {
     const immutable = config.headers.filter((entry) => entry.headers.some((header) => /immutable/.test(header.value)));
     expect(immutable.map((entry) => entry.source)).toEqual(['/assets/(.*)']);

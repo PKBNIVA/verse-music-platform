@@ -26,6 +26,8 @@ class UrgentMatchJob < ApplicationJob
     else
       item.update_columns(match_status: "skipped", matched_at: Time.current)
     end
+    # update_columns skips the model's callbacks: tell the hirer's page directly.
+    Realtime.urgent_request_changed(item)
   rescue StandardError
     # Hand the claim back so the retry (or a re-enqueue) can take it; already-sent alerts are not repeated.
     UrgentRequest.where(id: urgent_request_id, match_status: "matching").update_all(match_status: "pending") if item&.persisted?

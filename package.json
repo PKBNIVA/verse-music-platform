@@ -65,6 +65,7 @@
     "@radix-ui/react-toggle": "1.1.18",
     "@radix-ui/react-toggle-group": "1.1.19",
     "@radix-ui/react-tooltip": "1.2.16",
+    "@rails/actioncable": "8.1.400",
     "@resvg/resvg-js": "2.6.2",
     "@sentry/react": "11.4.0",
     "class-variance-authority": "0.7.1",

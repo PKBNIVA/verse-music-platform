@@ -30,7 +30,8 @@ class OtpAuthTest < ActionDispatch::IntegrationTest
     verify(" coder@example.com", code)
     assert_response :success
     body = response.parsed_body
-    assert_equal %w[accessToken user], body.keys.sort
+    # `realtime`: whether the app should open the live-updates socket (R2).
+    assert_equal %w[accessToken realtime user], body.keys.sort
     assert_equal @user.id, body.dig("user", "id")
     assert_equal true, body.dig("user", "emailVerified")
     assert @user.reload.email_verified?

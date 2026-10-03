@@ -18,6 +18,9 @@ class UrgentRequest < ApplicationRecord
   validate :valid_schedule_and_budget
   before_validation :set_expires_at, on: :create
   after_commit -> { Verification::RescoreJob.for_user(filled_by_id) if status == "filled" }
+  # Live status for the hirer's request page (Realtime). UrgentMatchJob writes match_status with
+  # update_columns and broadcasts itself.
+  after_update_commit -> { Realtime.urgent_request_changed(self) if (saved_changes.keys & %w[status match_status filled_by_id]).any? }
 
   scope :open_and_recent, -> { where(status: "open").where("start_at >= ?", STALE_AFTER.ago) }
   # Open requests past their expiry warning point (6 hours before expires_at), that have at

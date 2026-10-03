@@ -210,6 +210,7 @@ Rails.application.routes.draw do
     get "search", to: "search#index"
     get "search/status", to: "search#status"
     get "search/suggest", to: "search#suggest"
+    post "cable/ticket", to: "cable_tickets#create"
     post "uploads/presign", to: "uploads#presign"
     put "uploads/local", to: "uploads#local"
     post "uploads/:id/complete", to: "uploads#complete", as: :complete_upload

@@ -92,7 +92,7 @@ module Admin
           Notifier.moderation_warning(target, note.presence)
         when "suspend"
           target.update!(status: "suspended")
-          revoked = target.sessions.delete_all
+          revoked = Session.revoke!(target.sessions)
           audit!("admin.user.status", target, status: target.status, reportId: report.id)
         end
         report.update!(status: decision == "dismiss" ? "dismissed" : "resolved", action_taken: decision, resolution_note: note.presence,

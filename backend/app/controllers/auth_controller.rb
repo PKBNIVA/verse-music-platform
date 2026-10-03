@@ -101,7 +101,7 @@ class AuthController < ApplicationController
     verification_token = issue_token("verify_email", 24.hours, user)
     _verification_link, verification_delivery = deliver_token(verification_token, "/verify-email", user)
     audit!("auth.register", user, starter.any? ? { starter: created } : {})
-    render json: { user: public_user(user), accessToken: token, verificationRequired: true, verificationDelivery: verification_delivery, starter: created }, status: :created
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled?, verificationRequired: true, verificationDelivery: verification_delivery, starter: created }, status: :created
   rescue ActiveRecord::RecordNotUnique
     render_error("An account already exists for this email.", :conflict)
   end
@@ -144,7 +144,7 @@ class AuthController < ApplicationController
     user.update!(last_login_at: Time.current)
     token = sign_in(user)
     audit!("auth.login", user, second_factor ? { secondFactor: second_factor == :off ? "disabled" : "skipped" } : {})
-    render json: { user: public_user(user), accessToken: token }
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled? }
   end
 
   # POST /auth/second-factor {challengeToken, code} -> same shape as /auth/login.
@@ -173,7 +173,7 @@ class AuthController < ApplicationController
     user.update!(last_login_at: Time.current)
     token = sign_in(user)
     audit!("auth.login", user, { method: "password", secondFactor: "email_code" })
-    render json: { user: public_user(user), accessToken: token }
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled? }
   end
 
   # POST /auth/otp/request {email, role?, name?}
@@ -200,7 +200,7 @@ class AuthController < ApplicationController
     return render_error("This sign-in link has expired or was already used.", :unauthorized, "EXCHANGE_INVALID") if admin_code_only_sign_in_blocked?(user)
     return render_error("This account is not active.", :forbidden) unless user.active?
     token = sign_in(user)
-    render json: { user: public_user(user), accessToken: token }
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled? }
   end
 
   # POST /api/auth/connect-ticket (signed in) -> {ticket, expiresIn}. A single-use,
@@ -285,7 +285,7 @@ class AuthController < ApplicationController
     user.update!(last_login_at: Time.current)
     token = sign_in(user)
     audit!("auth.login", user, { method: "whatsapp_code" })
-    render json: { user: public_user(user), accessToken: token }
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled? }
   end
 
   def otp_request
@@ -345,7 +345,7 @@ class AuthController < ApplicationController
     notify_password_removed(user) if dropped
     token = sign_in(user)
     audit!(created ? "auth.register" : "auth.login", user, { method: "email_code" })
-    render json: { user: public_user(user), accessToken: token }
+    render json: { user: public_user(user), accessToken: token, realtime: Realtime.enabled? }
   end
 
   def logout
@@ -356,7 +356,7 @@ class AuthController < ApplicationController
 
   def me
     return unless authenticate!
-    render json: { user: public_user(current_user).merge(verification_state(current_user)) }
+    render json: { user: public_user(current_user).merge(verification_state(current_user)), realtime: Realtime.enabled? }
   end
 
   def request_verification
@@ -441,7 +441,7 @@ class AuthController < ApplicationController
       user.reclaim_unverified_credentials!
       user.update!(password: params[:password], password_set_at: Time.current, email_verified: true)
       token.update!(used_at: Time.current)
-      user.sessions.delete_all
+      Session.revoke!(user.sessions)
       user.email_tokens.usable("reset_password").update_all(used_at: Time.current)
     end
     AuditLog.create!(actor: user, action: "auth.password_reset", entity_type: "User", entity_id: user.id)
@@ -450,7 +450,7 @@ class AuthController < ApplicationController
     return render json: { ok: true, signInRequired: true } if user.admin?
 
     accessToken = sign_in(user)
-    render json: { ok: true, user: public_user(user), accessToken: }
+    render json: { ok: true, user: public_user(user), accessToken:, realtime: Realtime.enabled? }
   end
 
   private
@@ -479,7 +479,7 @@ class AuthController < ApplicationController
     Session.start!(user, token_digest: digest(raw), user_agent: request.user_agent)
     # The cap counts live sessions only: expired ones are inert and kept a few days for the
     # retention sweep (config/retention.yml), so they must never push out a live one.
-    user.sessions.where(id: user.sessions.active.order(created_at: :desc).offset(MAX_LIVE_SESSIONS).select(:id)).delete_all
+    Session.revoke!(user.sessions.where(id: user.sessions.active.order(created_at: :desc).offset(MAX_LIVE_SESSIONS).select(:id)))
     raw
   end
 

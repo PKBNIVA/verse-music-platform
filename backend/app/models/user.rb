@@ -67,7 +67,7 @@ class User < ApplicationRecord
     # can, rarely, contain the name or email ("Code User" vs "...coDe..."), which failed the sign-in.
     self.skip_password_strength = true
     update!(password: SecureRandom.base58(32), password_set_at: nil, phone: nil, phone_verified_at: nil)
-    sessions.delete_all
+    Session.revoke!(sessions)
     auth_connections.destroy_all
     email_tokens.where(used_at: nil).update_all(used_at: Time.current)
     had_password

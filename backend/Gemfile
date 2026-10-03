@@ -16,6 +16,8 @@ gem "web-push", "~> 3.1"
 gem "redis", "~> 6.0"
 gem "good_job", "~> 4.13"
 gem "solid_cache", "~> 1.0"
+# Action Cable adapter on the existing Postgres when no REDIS_URL is set (config/cable.yml).
+gem "solid_cable", "~> 3.0"
 gem "sentry-ruby", "~> 7.1"
 gem "sentry-rails", "~> 7.0"
 # One JSON line per request in production instead of Rails' multi-line request log (config/initializers/lograge.rb).

@@ -109,7 +109,7 @@ module Admin
 
     # Every other browser holding this admin's token is signed out; the one making the change stays.
     def revoke_other_sessions!
-      current_user.sessions.where.not(id: current_session.id).delete_all
+      Session.revoke!(current_user.sessions.where.not(id: current_session.id))
     end
 
     def notify_previous_address(previous_email, new_email)

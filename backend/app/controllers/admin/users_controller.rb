@@ -41,7 +41,7 @@ module Admin
       user = User.find(params[:id])
       return render_error("This account was deleted by its owner and cannot be restored.", :conflict, "ACCOUNT_DELETED") if user.deleted?
       user.update!(status: params[:status])
-      user.sessions.delete_all unless user.active?
+      Session.revoke!(user.sessions) unless user.active?
       audit!("admin.user.status", user, status: user.status)
       render json: { ok: true }
     end
@@ -90,7 +90,7 @@ module Admin
     def revoke_sessions
       user = User.find(params[:id])
       return render_error("Use sign out to end your own sessions.", :conflict) if user.id == current_user.id
-      count = user.sessions.delete_all
+      count = Session.revoke!(user.sessions)
       audit!("admin.user.revoke_sessions", user, count:)
       render json: { ok: true, revoked: count }
     end

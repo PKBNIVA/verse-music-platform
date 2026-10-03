@@ -84,7 +84,7 @@ class AccountErasure
 
   def erase_owned_rows
     id = @user.id
-    @user.sessions.delete_all
+    Session.revoke!(@user.sessions)
     @user.email_tokens.delete_all
     @user.auth_connections.destroy_all
     SignInCode.where(email: @user.email).delete_all

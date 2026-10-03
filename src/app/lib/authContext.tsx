@@ -39,6 +39,7 @@ async function consumeGoogleRedirectCode(): Promise<void> {
   }
 }
 import type { StarterPayload } from './onboarding';
+import { setRealtimeAvailable } from './realtimeAvailability';
 export type Role = 'jobseeker' | 'employer' | 'admin';
 export interface User {
   id: string;
@@ -122,12 +123,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setLoading(false);
       });
     if (!hasAccessToken()) {
+      setRealtimeAvailable(false);
       settle(null);
       return;
     }
     try {
-      const d = await apiGet<{ user: User }>('/me');
-      if (current === generation.current) settle(d.user);
+      const d = await apiGet<{ user: User; realtime?: boolean }>('/me');
+      if (current === generation.current) {
+        setRealtimeAvailable(d.realtime === true);
+        settle(d.user);
+      }
     } catch (e) {
       /* Only a rejected session (expired, revoked or inactive account) ends it; timeouts and outages keep the token so the user can retry. A 401 is cleared by api() itself, and only if no other tab has signed in since. */ if (
         current !== generation.current
@@ -160,42 +165,55 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     [],
   );
   const login = async (email: string, password: string) => {
-    const d = await apiPost<{ user: User; accessToken: string } | SecondFactorChallenge>('/auth/login', {
-      email,
-      password,
-    });
+    const d = await apiPost<{ user: User; accessToken: string; realtime?: boolean } | SecondFactorChallenge>(
+      '/auth/login',
+      {
+        email,
+        password,
+      },
+    );
     if (isSecondFactorChallenge(d)) return d;
     generation.current += 1;
     setAccessToken(d.accessToken);
     rememberSessionRole(d.user.role);
+    setRealtimeAvailable(d.realtime === true);
     setUser(d.user);
     setLoading(false);
     return d.user;
   };
   const register = async (payload: RegisterPayload) => {
-    const d = await apiPost<{ user: User; accessToken: string }>('/auth/register', payload);
+    const d = await apiPost<{ user: User; accessToken: string; realtime?: boolean }>('/auth/register', payload);
     generation.current += 1;
     setAccessToken(d.accessToken);
     rememberSessionRole(d.user.role);
+    setRealtimeAvailable(d.realtime === true);
     setUser(d.user);
     setLoading(false);
     return d.user;
   };
   /* Email sign-in code: same response as /auth/login; creates the account when the code was requested as a sign-up. */ const verifyCode =
     async (email: string, code: string) => {
-      const d = await apiPost<{ user: User; accessToken: string }>('/auth/otp/verify', { email, code });
+      const d = await apiPost<{ user: User; accessToken: string; realtime?: boolean }>('/auth/otp/verify', {
+        email,
+        code,
+      });
       generation.current += 1;
       setAccessToken(d.accessToken);
       rememberSessionRole(d.user.role);
+      setRealtimeAvailable(d.realtime === true);
       setUser(d.user);
       setLoading(false);
       return d.user;
     };
   const completeSecondFactor = async (challengeToken: string, code: string) => {
-    const d = await apiPost<{ user: User; accessToken: string }>('/auth/second-factor', { challengeToken, code });
+    const d = await apiPost<{ user: User; accessToken: string; realtime?: boolean }>('/auth/second-factor', {
+      challengeToken,
+      code,
+    });
     generation.current += 1;
     setAccessToken(d.accessToken);
     rememberSessionRole(d.user.role);
+    setRealtimeAvailable(d.realtime === true);
     setUser(d.user);
     setLoading(false);
     return d.user;
@@ -207,6 +225,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       generation.current += 1;
       setAccessToken(null);
       rememberSessionRole(null);
+      setRealtimeAvailable(false);
       setUser(null);
     }
   };

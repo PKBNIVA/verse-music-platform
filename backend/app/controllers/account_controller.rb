@@ -144,7 +144,7 @@ class AccountController < ApplicationController
   # Every other browser holding this account's token is signed out; the one making the
   # change stays (matches Admin::AccountController's behaviour for the admin's own account).
   def revoke_other_sessions!
-    current_user.sessions.where.not(id: current_session.id).delete_all
+    Session.revoke!(current_user.sessions.where.not(id: current_session.id))
   end
 
   # A new way into the account is a security event: tell the owner so they can act if it was not them.

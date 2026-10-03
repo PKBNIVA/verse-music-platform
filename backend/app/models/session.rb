@@ -20,6 +20,16 @@ class Session < ApplicationRecord
 
   belongs_to :user
   scope :active, -> { where("expires_at > ?", Time.current) }
+  # A signed-out session also closes its real-time sockets.
+  after_destroy_commit { Realtime.disconnect(self) }
+
+  # Deletes the sessions of `relation` and closes their open real-time sockets. Returns the count.
+  def self.revoke!(relation)
+    sessions = relation.includes(:user).to_a
+    count = relation.delete_all
+    Realtime.disconnect(sessions)
+    count
+  end
 
   def self.start!(user, token_digest:, user_agent:, now: Time.current)
     absolute = now + lifetime_for(user)

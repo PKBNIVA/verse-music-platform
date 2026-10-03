@@ -17,6 +17,8 @@ import { useAuth } from '../lib/authContext';
 import { AiSuggestButton } from '../components/ai/AiSuggestButton';
 import { errorCode, errorMessage as messageOf, errorStatus } from '../lib/errors';
 import { announceUnreadChanged, useVisiblePolling } from '../lib/usePolling';
+import { byTime, mergeMessages } from '../lib/messageMerge';
+import { useRealtime, useRealtimeInterval } from '../lib/realtime';
 import { linkify } from '../lib/linkify';
 import { formatWhen, formatNumber } from '../lib/format';
 import type { Conversation, Message, MessagePage } from '../lib/apiTypes';
@@ -30,7 +32,6 @@ const errorMessage = (e: unknown, fallback: string) => {
     return 'You’re sending messages too quickly. Wait a few minutes, then try again — your draft is saved.';
   return messageOf(e, fallback);
 };
-const byTime = (a: Message, b: Message) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id);
 const formatTime = (value?: string | null) => formatWhen(value);
 const isDesktop = () =>
   typeof window !== 'undefined' &&
@@ -178,7 +179,7 @@ export default function Messages() {
         const server: Message[] = [...(d.messages || [])].sort(byTime);
         if (cursor) {
           setMsgs((prev) => {
-            const merged = [...prev.filter((m) => !server.some((s) => s.id === m.id)), ...server].sort(byTime);
+            const merged = mergeMessages(prev, server);
             // theirReadAt: the counterpart may have read an earlier message of ours that this
             // cursor-limited response otherwise wouldn't include again.
             if (!d.theirReadAt) return merged;
@@ -234,8 +235,20 @@ export default function Messages() {
     if (activeId) void loadThread(activeId);
     else setThreadState('idle');
   }, [activeId, loadThread]);
-  useVisiblePolling(() => activeRef.current && loadThread(activeRef.current, true), THREAD_POLL_MS, Boolean(activeId));
-  useVisiblePolling(loadConvs, INBOX_POLL_MS);
+  // Live updates fetch what is new at once; polling stays as the fallback, every 30 s while the
+  // socket is up and at the usual pace when it is not.
+  useRealtime('ConversationChannel', activeId ? { id: activeId } : null, (event) => {
+    if (event.type === 'message' && activeRef.current && event.conversationId === activeRef.current) {
+      void loadThread(activeRef.current, true);
+    }
+  });
+  useRealtime('UserChannel', {}, (event) => {
+    if (event.type === 'message') void loadConvs();
+  });
+  const threadPollMs = useRealtimeInterval(THREAD_POLL_MS);
+  const inboxPollMs = useRealtimeInterval(INBOX_POLL_MS);
+  useVisiblePolling(() => activeRef.current && loadThread(activeRef.current, true), threadPollMs, Boolean(activeId));
+  useVisiblePolling(loadConvs, inboxPollMs);
 
   useLayoutEffect(() => {
     const el = scroller.current;
@@ -339,7 +352,7 @@ export default function Messages() {
       const d = await apiPost<{ message: Message }>(`/conversations/${id}/messages`, { body });
       if (activeRef.current === id) {
         stickToBottom.current = true;
-        setMsgs((xs) => (xs.some((m) => m.id === d.message.id) ? xs : [...xs, d.message].sort(byTime)));
+        setMsgs((xs) => mergeMessages(xs, [d.message]));
       }
       setText('');
       setConvs((prev) => {

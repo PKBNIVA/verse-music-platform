@@ -17,6 +17,8 @@ import { saveUrgentDraft } from '../lib/urgentDraft';
 import { toast } from 'sonner';
 import { CheckCircle2, Clock3, MessageCircle, Zap } from 'lucide-react';
 import type { UrgentRequest, UrgentRequestResponse } from '../lib/apiTypes';
+import { useVisiblePolling } from '../lib/usePolling';
+import { useRealtime, useRealtimeInterval } from '../lib/realtime';
 
 type Confirmed = { id: string; notifiedCount: number; matchStatus?: string; responseTimePromise: string };
 // Passed via navigate(..., { state }) either directly (signed-in submit) or after the
@@ -152,10 +154,11 @@ function StatusCard({ confirmed, onNewRequest }: { confirmed: Confirmed; onNewRe
 
   useEffect(() => {
     void refresh();
-    // Matching runs in the background right after posting, so check often until it finishes.
-    const interval = setInterval(() => void refresh(), matching && !slow ? 4_000 : 15_000);
-    return () => clearInterval(interval);
-  }, [refresh, matching, slow]);
+  }, [refresh]);
+  // Status, matching progress and responses arrive live; polling is the fallback. Matching runs in
+  // the background right after posting, so without a live connection check often until it finishes.
+  useRealtime('UrgentRequestChannel', user ? { id: confirmed.id } : null, () => void refresh());
+  useVisiblePolling(refresh, useRealtimeInterval(matching && !slow ? 4_000 : 15_000));
 
   async function message(userId: string) {
     try {

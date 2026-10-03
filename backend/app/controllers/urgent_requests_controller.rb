@@ -97,6 +97,7 @@ class UrgentRequestsController < ApplicationController
     first_response = !UrgentRequestResponse.exists?(urgent_request_id: item.id, user_id: current_user.id)
     note = params[:message].to_s.strip.presence
     UrgentRequestResponse.upsert({ urgent_request_id: item.id, user_id: current_user.id, message: note, rate: rate&.to_i, status: "available", created_at: Time.current, updated_at: Time.current }, unique_by: :idx_urgent_response_unique)
+    Realtime.urgent_request_changed(item, "response")
     Notifier.milestone_first_urgent_response(current_user, item)
     # The conversation exists from the first response, so the musician can open it at once (J-03).
     # The hirer gets one notice for the response, which opens that conversation; the note the

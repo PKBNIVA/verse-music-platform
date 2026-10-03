@@ -50,6 +50,7 @@ import { toast } from 'sonner';
 import { SIGN_IN_CODE_TOAST } from '../lib/authToasts';
 import { apiGet } from '../lib/api';
 import { UNREAD_CHANGED_EVENT, useVisiblePolling } from '../lib/usePolling';
+import { useRealtime, useRealtimeInterval } from '../lib/realtime';
 import { ProductTour } from './ProductTour';
 import { openProblemReport } from '../lib/problemReportEvent';
 import { watchClientErrors } from '../lib/recentErrors';
@@ -81,8 +82,9 @@ export function Navigation() {
     toast.dismiss(SIGN_IN_CODE_TOAST);
   }, [location.pathname]);
   const [unreadMessages, setUnreadMessages] = useState(0);
-  // Unread badges: fetched on mount and on route change, polled every 10 s while the tab is visible,
-  // and refreshed immediately when a page reports that the viewer read something.
+  // Unread badges: fetched on mount and on route change, refreshed at once on a live update (a new
+  // notification or message) or when a page reports that the viewer read something, and polled
+  // while the tab is visible: every 10 s, or every 30 s while the live connection is up.
   const refreshUnread = () =>
     apiGet<UnreadCounts>('/notifications/unread')
       .then((d) => {
@@ -100,7 +102,8 @@ export function Navigation() {
     window.addEventListener(UNREAD_CHANGED_EVENT, onChange);
     return () => window.removeEventListener(UNREAD_CHANGED_EVENT, onChange);
   }, []);
-  useVisiblePolling(refreshUnread, UNREAD_POLL_MS, Boolean(user));
+  useRealtime('UserChannel', user ? {} : null, () => void refreshUnread());
+  useVisiblePolling(refreshUnread, useRealtimeInterval(UNREAD_POLL_MS), Boolean(user));
   const messageBadge = (className: string) =>
     unreadMessages > 0 ? (
       <span
